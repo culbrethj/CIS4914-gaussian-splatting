@@ -2,7 +2,7 @@ import open3d as o3d
 import pycolmap
 
 # 1. Load the model
-rec = pycolmap.Reconstruction("")
+rec = pycolmap.Reconstruction("south-building/output")
 
 # 2. Extract XYZ coordinates and RGB colors
 points = [p.xyz for p in rec.points3D.values()]

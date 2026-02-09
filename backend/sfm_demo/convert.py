@@ -1,7 +1,7 @@
 import pycolmap
 
 # Load your model from the directory containing the .bin files
-reconstruction = pycolmap.Reconstruction("")
+reconstruction = pycolmap.Reconstruction("south-building/output")
 
 # Export to a PLY file
 reconstruction.export_PLY("output_cloud.ply")

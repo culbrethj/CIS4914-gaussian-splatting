@@ -3,7 +3,7 @@ from pathlib import Path
 
 # Setup paths
 dataset_path = Path("south-building/images_small") # Folder containing .jpg or .png
-output_path = Path("")
+output_path = Path("south-building/output")
 output_path.mkdir(exist_ok=True)
 
 database_path = output_path / "database.db"
@@ -25,7 +25,7 @@ reconstructions = pycolmap.incremental_mapping(database_path, dataset_path, outp
 if reconstructions:
     # Save the first (usually only) reconstruction found
     reconstructions[0].write(output_path)
-    reconstructions[0].export_PLY("output_cloud.ply")
+    reconstructions[0].export_PLY(output_path/"output_cloud.ply")
     print(f"Reconstruction successful! Saved to {output_path}")
 else:
     print("No reconstruction could be created.")
