@@ -30,3 +30,27 @@
             - Run frame splicing + SfM on a video we take
 - Milestone and Presentation 2: Week 6-9
 - Milestone and Presentation 3: Week 11-13
+
+---
+
+### Frontend Setup and Run
+
+NodeJs is required (v20+). Check your Node version.
+
+```bash
+node -v
+```
+
+Install frontend dependencies and run.
+
+```bash
+cd frontend
+npm install
+```
+
+Run the app.
+
+```bash
+npm run dev
+```
+Visit `http://localhost:5173` in browser.
