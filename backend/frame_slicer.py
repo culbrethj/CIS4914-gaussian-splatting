@@ -1,5 +1,9 @@
 from pathlib import Path
+from preprocessor import preprocessor
 import cv2
+
+DUPLICATE_THRESHOLD = 3.0
+BLUR_THRESHOLD = 50
 
 def video_slicer(video_path, output_dir, img_format):
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -31,6 +35,10 @@ if __name__ == "__main__":
     # run with test video sample-10s.mp4
     video_path = root / "data" / "videos" / "sample-10s.mp4"
     # create output folder w same name for output
-    output_path = root / "data" / "frames" / video_path.stem
+    raw_path = root / "data" / "frames" / video_path.stem / "raw"
 
-    video_slicer(video_path, output_path, "jpg")
+    video_slicer(video_path, raw_path, "jpg")
+
+    # create dir of processed frames
+    processed_path = root / "data" / "frames" / video_path.stem / "proc"
+    preprocessor(raw_path, processed_path, DUPLICATE_THRESHOLD, BLUR_THRESHOLD)
