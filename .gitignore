@@ -1,5 +1,2 @@
-TexturePoorSfM_dataset
-.venv
-colmap_env
-node_modules
-docs
+data/
+__pycache__/
