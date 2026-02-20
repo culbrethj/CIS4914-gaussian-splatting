@@ -2,7 +2,7 @@
 
 ### Due Dates
 - ~~**Feb 01: Project Proposal**~~
-- Feb 06: Week 4 reports
+- ~~Feb 06: Week 4 reports~~
 - Feb 13: Week 5 reports
 - **Feb 15: Presentation 1 video**
 - Feb 20: Week 6 reports
