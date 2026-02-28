@@ -2,8 +2,8 @@ import os
 from PIL import Image
 
 # ===== SETTINGS =====
-input_dir = "south-building/images"        # folder with original JPGs
-output_dir = "south-building/images_small" # folder to save resized images
+input_dir = "datasets/south-building/images_full"        # folder with original JPGs
+output_dir = "datasets/south-building/images" # folder to save resized images
 max_size = 1200             # longest side in pixels
 quality = 95                # JPEG quality (85–95 recommended)
 # ====================

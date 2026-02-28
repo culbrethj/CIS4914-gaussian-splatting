@@ -1,2 +1,7 @@
 data/
 __pycache__/
+backend/datasets/TexturePoorSfM_dataset
+node_modules
+colmap_env
+docs
+database.db

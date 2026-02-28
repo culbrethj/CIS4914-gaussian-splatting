@@ -54,3 +54,13 @@ Run the app.
 npm run dev
 ```
 Visit `http://localhost:5173` in browser.
+
+--- 
+
+### Gaussian Splat Demo
+
+Run banana dataset:
+```bash
+cd backend
+./opensplat datasets/banana -n 3000
+```
