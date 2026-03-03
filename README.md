@@ -54,3 +54,26 @@ Run the app.
 npm run dev
 ```
 Visit `http://localhost:5173` in browser.
+
+### Backend Setup and Run
+
+This is needed for the current video upload implementation
+Python 3 is required. Create and activate a virtual environment.
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate  # Mac/Linux
+venv\Scripts\activate     # Windows
+```
+
+Install Backend Dependencies
+```bash
+pip install fastapi uvicorn python-multipart opencv-python
+```
+
+Run the server.
+```bash
+uvicorn main:app --reload
+```
+
+API will be available at `http://localhost:8000`.

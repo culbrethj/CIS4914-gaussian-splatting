@@ -1,12 +1,103 @@
-canvas,
-html,
-#root,
-body {
-  height: 100%;
-  padding: 0;
+body, html, #root {
   margin: 0;
+  padding: 0;
+  background: #f8f9fa;
+  color: #1a1a1a;
+  font-family: sans-serif;
 }
 
+.app-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem;
+  gap: 2rem;
+}
+
+.app-title {
+  font-size: 1.5rem;
+  letter-spacing: 0.1em;
+  color: #1a1a1a;
+}
+
+canvas {
+  width: 100% !important;
+  height: 500px !important;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+}
+
+/* Upload card */
+.upload-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 2rem;
+  width: 400px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+  margin-bottom: 2rem;
+}
+
+.upload-title {
+  color: #1a1a1a;
+  margin-bottom: 0.5rem;
+  font-size: 1.2rem;
+  letter-spacing: 0.05em;
+}
+
+.upload-subtitle {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  margin-bottom: 1.5rem;
+}
+
+.upload-dropzone {
+  display: block;
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  padding: 2rem;
+  cursor: pointer;
+  color: #3182ce;
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+  transition: border-color 0.2s;
+  text-align: center;
+}
+
+.upload-dropzone:hover {
+  border-color: #3182ce;
+}
+
+.upload-button {
+  width: 100%;
+  padding: 0.85rem;
+  background: linear-gradient(135deg, #3182ce, #63b3ed);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.upload-button:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.upload-button:disabled {
+  background: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.upload-status {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  color: #3182ce;
+  text-align: center;
+}
 
 /* #root {
   max-width: 1280px;
