@@ -4,11 +4,11 @@ import './App.css'
 
 function App() {
   return (
-    <>
-      <h1>Team Gauss Project</h1>
+    <div className="app-container">
+      <h1 className="app-title">Team Gauss Project</h1>
       <VideoUpload />
       <GaussViewer />
-    </>
+    </div>
   )
 }
 
