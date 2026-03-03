@@ -87,3 +87,25 @@ python pipeline.py truck 5000
 ```
 
 I built ```./opensplat``` on Mac and it depends on opencv and pytorch, so you probably have to rebuild it on your machine. Follow instructions on this github and copy the produced binary [https://github.com/pierotofy/OpenSplat]()
+### Backend Setup and Run
+
+This is needed for the current video upload implementation
+Python 3 is required. Create and activate a virtual environment.
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate  # Mac/Linux
+venv\Scripts\activate     # Windows
+```
+
+Install Backend Dependencies
+```bash
+pip install fastapi uvicorn python-multipart opencv-python
+```
+
+Run the server.
+```bash
+uvicorn main:app --reload
+```
+
+API will be available at `http://localhost:8000`.
