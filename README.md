@@ -59,8 +59,31 @@ Visit `http://localhost:5173` in browser.
 
 ### Gaussian Splat Demo
 
-Run banana dataset:
+(Windows will need slight adjustments to these instructions)
+
+Create a virtual environment ***Use Python 3.11**
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Available datasets to sub in for ```banana```: south-building, truck, banana
+
+Run SfM:
 ```bash
 cd backend
-./opensplat datasets/banana -n 3000
+python sfm.py datasets/banana/images datasets/banana/sparse
 ```
+
+Run Gaussian Splatting:
+```bash
+./opensplat datasets/banana -o datasets/banana/splat.ply -n 2000
+```
+
+Or just run pipeline.py
+```bash
+python pipeline.py truck 5000
+```
+
+I built ```./opensplat``` on Mac and it depends on opencv and pytorch, so you probably have to rebuild it on your machine. Follow instructions on this github and copy the produced binary [https://github.com/pierotofy/OpenSplat]()
