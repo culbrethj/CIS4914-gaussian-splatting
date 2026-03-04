@@ -1,8 +1,7 @@
 data/
 __pycache__/
 node_modules
-.venv/
+venv/
 .env
-docs
 database.db
 sparse/
