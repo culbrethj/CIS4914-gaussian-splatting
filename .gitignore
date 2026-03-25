@@ -5,3 +5,4 @@ venv/
 .env
 database.db
 sparse/
+backend/datasets

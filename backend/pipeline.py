@@ -25,7 +25,10 @@ def run_sfm(dataset_path):
 
 
 def run_opensplat(dataset_path, num_iters):
-    opensplat_path = HERE / "opensplat"
+    exe = ""
+    if sys.platform == "win32":
+        exe = ".exe"
+    opensplat_path = HERE / f"opensplat{exe}"
 
     if opensplat_path.exists() and opensplat_path.is_file():
         exe = str(opensplat_path)
@@ -59,7 +62,7 @@ def run_prepare(dataset_path, video_path, img_format):
 def main():
     parser = argparse.ArgumentParser(description="Orchestrate SfM and Gaussian Splatting")
     parser.add_argument("dataset", help="Dataset name inside datasets/")
-    parser.add_argument("iters", type=int, default = 1000, help="Number of OpenSplat iterations")
+    parser.add_argument("--iters", type=int, default = 1000, help="Number of OpenSplat iterations")
     parser.add_argument("--video", help="Path to input video")
     parser.add_argument("--img_format", default="jpg", help="Frame image format")
     parser.add_argument(
