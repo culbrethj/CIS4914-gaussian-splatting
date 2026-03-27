@@ -11,8 +11,9 @@ from preprocessor import preprocessor
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 HERE = Path(__file__).resolve().parent
 
-DUPLICATE_THRESHOLD = 3.0
-BLUR_THRESHOLD = 50
+# TODO: Need to tune thresholds. At 3, 50 had issues with sfm failing
+DUPLICATE_THRESHOLD = 0 #3.0
+BLUR_THRESHOLD = 0 #50
 
 def run_command(cmd, cwd=HERE):
     logging.info("Running: %s (cwd=%s)", " ".join(cmd), cwd)
@@ -33,7 +34,7 @@ def run_opensplat(dataset_path, num_iters):
     if opensplat_path.exists() and opensplat_path.is_file():
         exe = str(opensplat_path)
 
-        output_ply = f"{dataset_path}/splat.ply"
+        output_ply = dataset_path / "splat.ply"
 
         cmd = [
             exe,

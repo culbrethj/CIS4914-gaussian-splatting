@@ -6,3 +6,7 @@ venv/
 database.db
 sparse/
 backend/datasets
+
+# OpenSplat runtime deps
+backend/*.dll
+backend/*.exe
