@@ -56,6 +56,7 @@ venv\Scripts\activate     # Windows
 Install Backend Dependencies
 ```bash
 pip install fastapi uvicorn python-multipart opencv-python
+pip install numpy pycolmap
 ```
 
 Run the server.

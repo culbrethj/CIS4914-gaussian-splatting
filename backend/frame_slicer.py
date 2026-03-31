@@ -2,8 +2,6 @@ from pathlib import Path
 from preprocessor import preprocessor
 import cv2
 
-DUPLICATE_THRESHOLD = 3.0
-BLUR_THRESHOLD = 50
 
 def video_slicer(video_path, output_dir, img_format):
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -25,9 +23,10 @@ def video_slicer(video_path, output_dir, img_format):
         i += 1
 
     video.release()
-    print(f"{i+1} frames saved to {output_dir}")
+    print(f"{i} frames saved to {output_dir}")
     return
 
+'''
 if __name__ == "__main__":
     # get root directory (parent 1 ->backend parent 2 ->CIS4914-Gaussian-Splatting)
     root = Path(__file__).parent.parent.resolve()
@@ -42,3 +41,4 @@ if __name__ == "__main__":
     # create dir of processed frames
     processed_path = root / "data" / "frames" / video_path.stem / "proc"
     preprocessor(raw_path, processed_path, DUPLICATE_THRESHOLD, BLUR_THRESHOLD)
+'''
