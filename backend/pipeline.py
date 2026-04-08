@@ -5,9 +5,15 @@ from pathlib import Path
 import argparse
 import logging
 from sfm import sfm
+from frame_slicer import video_slicer
+from preprocessor import preprocessor
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 HERE = Path(__file__).resolve().parent
+
+# TODO: Need to tune thresholds. At 3, 50 had issues with sfm failing
+DUPLICATE_THRESHOLD = 0 #3.0
+BLUR_THRESHOLD = 0 #50
 
 def run_command(cmd, cwd=HERE):
     logging.info("Running: %s (cwd=%s)", " ".join(cmd), cwd)
@@ -15,18 +21,20 @@ def run_command(cmd, cwd=HERE):
     subprocess.run(cmd, cwd=str(cwd), check=True)
 
 
-def run_sfm(dataset):
-    sfm(f"datasets/{dataset}/images", f"datasets/{dataset}/sparse")
+def run_sfm(dataset_path):
+    sfm(f"{dataset_path}/images", f"{dataset_path}/sparse")
 
 
-def run_opensplat(dataset, num_iters):
-    opensplat_path = HERE / "opensplat"
+def run_opensplat(dataset_path, num_iters):
+    exe = ""
+    if sys.platform == "win32":
+        exe = ".exe"
+    opensplat_path = HERE / f"opensplat{exe}"
 
     if opensplat_path.exists() and opensplat_path.is_file():
         exe = str(opensplat_path)
 
-        dataset_path = f"datasets/{dataset}"
-        output_ply = f"{dataset_path}/splat.ply"
+        output_ply = dataset_path / "splat.ply"
 
         cmd = [
             exe,
@@ -39,28 +47,52 @@ def run_opensplat(dataset, num_iters):
 
     else:
         raise FileNotFoundError("opensplat not found (expected ./opensplat)")
+    
+def run_prepare(dataset_path, video_path, img_format):
+    raw_path = dataset_path / "raw"
+    images_path = dataset_path / "images"
 
-def main(dataset, iters):
+    logging.info("Starting video slicing")
+    video_slicer(video_path, raw_path, img_format)
+    logging.info("Video slicing finished")
+
+    logging.info("Starting preprocessing")
+    preprocessor(raw_path, images_path, DUPLICATE_THRESHOLD, BLUR_THRESHOLD)
+    logging.info("Preprocessing finished")
+
+def main():
     parser = argparse.ArgumentParser(description="Orchestrate SfM and Gaussian Splatting")
     parser.add_argument("dataset", help="Dataset name inside datasets/")
-    parser.add_argument("iters", type=int, help="Number of OpenSplat iterations")
+    parser.add_argument("--iters", type=int, default = 1000, help="Number of OpenSplat iterations")
+    parser.add_argument("--video", help="Path to input video")
+    parser.add_argument("--img_format", default="jpg", help="Frame image format")
     parser.add_argument(
         "--only",
-        choices=["sfm", "opensplat", "all"],
+        choices=["prepare", "sfm", "opensplat", "all"],
         default="all",
         help="Which step to run (default: all)",
     )
     args = parser.parse_args()
 
+    dataset_path = HERE / "datasets" / args.dataset
+    dataset_path.mkdir(parents=True, exist_ok=True)
+
     try:
+        if args.only in ("prepare", "all"):
+            if not args.video:
+                raise ValueError("--video is a required parameter")
+            video_path = Path(args.video).resolve()
+            if not video_path.exists():
+                raise FileNotFoundError(f"Video not found {video_path}")
+            run_prepare(dataset_path, video_path, args.img_format)
         if args.only in ("sfm", "all"):
             logging.info("Starting SfM step")
-            run_sfm(dataset)
+            run_sfm(dataset_path)
             logging.info("SfM step finished successfully")
 
         if args.only in ("opensplat", "all"):
             logging.info("Starting Gaussian Splatting (opensplat)")
-            run_opensplat(dataset, iters)
+            run_opensplat(dataset_path, args.iters)
             logging.info("Gaussian Splatting finished successfully")
 
     except subprocess.CalledProcessError as e:
@@ -72,6 +104,5 @@ def main(dataset, iters):
 
 
 if __name__ == "__main__":
-    # TODO verify argv[1] is a valid dataset
-    # TODO verify argv[2] is a valid num of iters
-    main(sys.argv[1], sys.argv[2])
+    # TODO verify dataset content before running
+    main()

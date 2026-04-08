@@ -5,3 +5,10 @@ venv/
 .env
 database.db
 sparse/
+backend/datasets
+backend/data_output
+.DS_Store
+
+# OpenSplat runtime deps
+backend/*.dll
+backend/*.exe
