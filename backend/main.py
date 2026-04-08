@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, UploadFile, File, HTTPException, WebSocket, WebSocketDisconnect, Body, Form
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
@@ -46,32 +46,77 @@ async def _read_process_and_stream(proc: asyncio.subprocess.Process, queue: asyn
 
 
 @app.post("/api/upload")
-async def upload_video(video: UploadFile = File(...)):
+async def upload_video(video: UploadFile = File(...), dataset: str | None = Form(None)):
     """
-    Save uploaded video and start the pipeline asynchronously.
-    Returns a job_id which the frontend can use to open a WebSocket to receive logs:
-      ws://<host>/api/ws/{job_id}
+    Save uploaded video only. Accepts optional form field 'dataset' to set the dataset name.
+    Returns dataset name and saved filename.
+    The pipeline is NOT started here — call /api/run to start the pipeline for an uploaded dataset.
     """
     try:
-        dataset_name = Path(video.filename).stem
-        save_path = datasets_dir / dataset_name / "video" / video.filename
+        # sanitize filename and dataset
+        safe_filename = Path(video.filename).name
+        if dataset:
+            # sanitize provided dataset name (avoid path traversal and invalid chars)
+            safe_dataset = Path(dataset).name
+            # simple validation: allow alnum, underscore, dash, dot
+            import re
+            if not re.match(r"^[A-Za-z0-9_.-]+$", safe_dataset):
+                raise HTTPException(status_code=400, detail="invalid dataset name (allowed: letters, numbers, _ . -)")
+            dataset_name = safe_dataset
+        else:
+            dataset_name = Path(safe_filename).stem
+
+        save_path = datasets_dir / dataset_name / "video" / safe_filename
         save_path.parent.mkdir(parents=True, exist_ok=True)
 
         # write file
         with open(save_path, "wb") as buffer:
             shutil.copyfileobj(video.file, buffer)
 
+        return JSONResponse({"dataset": dataset_name, "filename": safe_filename})
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/run")
+async def run_pipeline(payload: dict = Body(...)):
+    """
+    Start the pipeline for an already-uploaded dataset.
+    Expected JSON body: { "dataset": "<name>", "iters": 1000, "only": "all" }
+    Returns: { "job_id": "<id>" }
+    """
+    try:
+        dataset_name = payload.get("dataset")
+        if not dataset_name:
+            raise HTTPException(status_code=400, detail="dataset is required")
+
+        # Find video file for this dataset (first file in datasets/<dataset>/video/)
+        video_dir = datasets_dir / dataset_name / "video"
+        if not video_dir.exists() or not video_dir.is_dir():
+            raise HTTPException(status_code=400, detail="no uploaded video found for dataset")
+
+        video_files = [p for p in sorted(video_dir.iterdir()) if p.is_file()]
+        if not video_files:
+            raise HTTPException(status_code=400, detail="no uploaded video file found for dataset")
+
+        video_path = video_files[0]
+
         pipeline_path = HERE / "pipeline.py"
         if not pipeline_path.exists():
             raise HTTPException(status_code=500, detail="pipeline.py not found on server")
 
-        # build command
+        iters = str(payload.get("iters", 1000))
+        only = payload.get("only", "all")
+
+        # build command (same parameters used previously)
         cmd = [sys.executable,
                str(pipeline_path),
                dataset_name,
-               "--video", str(save_path),
-               "--iters", "1000",
-               "--only", "all"]
+               "--video", str(video_path),
+               "--iters", iters,
+               "--only", only]
 
         # create job id and queue
         job_id = uuid.uuid4().hex

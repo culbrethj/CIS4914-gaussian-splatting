@@ -16,7 +16,11 @@ export default function LiveDemos() {
   const [selected, setSelected] = useState(null);
   const [jobId, setJobId] = useState(null);
   const [logs, setLogs] = useState([]);
-  const [uploading, setUploading] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false); // uploading the video file
+  const [uploadComplete, setUploadComplete] = useState(false);
+  const [uploadedDataset, setUploadedDataset] = useState(null);
+  const [running, setRunning] = useState(false); // pipeline run state
+  const [datasetName, setDatasetName] = useState(""); // <-- new
   const wsRef = useRef(null);
   const logRef = useRef(null);
 
@@ -51,7 +55,7 @@ export default function LiveDemos() {
       setLogs((l) => [...l, ev.data]);
       // close when job done
       if (ev.data.startsWith("<<DONE:") || ev.data.startsWith("<<ERROR:")) {
-        setUploading(false);
+        setUploadingFile(false);
         ws.close();
         wsRef.current = null;
         // refresh datasets list after job finishes (only keep those with splat)
@@ -68,14 +72,22 @@ export default function LiveDemos() {
 
   async function handleUpload(evt) {
     evt.preventDefault();
-    const f = evt.target.querySelector('input[type="file"]').files[0];
+    const fileInput = evt.target.querySelector('input[type="file"]');
+    const f = fileInput.files[0];
     if (!f) return alert("Choose a file first");
-    setUploading(true);
-    setLogs([]);
-    setJobId(null);
+
+    // require dataset name
+    if (!datasetName || !/^[A-Za-z0-9_.-]+$/.test(datasetName)) {
+      return alert("Enter a valid dataset name (letters, numbers, underscore, dash, dot).");
+    }
+
+    setUploadingFile(true);
+    setUploadComplete(false);
+    setUploadedDataset(null);
 
     const fd = new FormData();
     fd.append("video", f, f.name);
+    fd.append("dataset", datasetName);
 
     try {
       const res = await fetch("/api/upload", { method: "POST", body: fd });
@@ -84,11 +96,42 @@ export default function LiveDemos() {
         throw new Error(txt || "upload failed");
       }
       const data = await res.json();
+      // returned: { dataset, filename }
+      setUploadedDataset(data.dataset);
+      setUploadComplete(true);
+      // keep datasetName in sync with returned (sanitized) name
+      setDatasetName(data.dataset);
+      setLogs((l) => [...l, `Uploaded ${data.filename} as dataset ${data.dataset}`]);
+    } catch (e) {
+      setUploadComplete(false);
+      setLogs((l) => [...l, `Upload error: ${String(e)}`]);
+    } finally {
+      setUploadingFile(false);
+    }
+  }
+
+  async function runSimple() {
+    if (!uploadedDataset) return;
+    setRunning(true);
+    setLogs([]);
+    setJobId(null);
+
+    try {
+      const res = await fetch("/api/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dataset: uploadedDataset, iters: 1000, only: "all" }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || "run failed");
+      }
+      const data = await res.json();
       setJobId(data.job_id);
       openWS(data.job_id);
     } catch (e) {
-      setUploading(false);
-      setLogs((l) => [...l, `Upload error: ${String(e)}`]);
+      setRunning(false);
+      setLogs((l) => [...l, `Run error: ${String(e)}`]);
     }
   }
 
@@ -99,16 +142,26 @@ export default function LiveDemos() {
       <h2>Live Demos</h2>
 
       <section style={{ marginTop: 12 }}>
-        <h3>Upload video & run pipeline</h3>
+        <h3>Upload video</h3>
         <form onSubmit={handleUpload} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input type="file" accept="video/*" />
-          <button type="submit" style={buttonStyle} disabled={uploading}>
-            {uploading ? "Uploading..." : "Upload & Run"}
+          <input
+            type="text"
+            placeholder="dataset name (e.g. my_dataset)"
+            value={datasetName}
+            onChange={(e) => setDatasetName(e.target.value)}
+            disabled={uploadingFile || running}
+            style={{ padding: "8px 10px", borderRadius: 8 }}
+          />
+          <input type="file" accept="video/*" disabled={uploadingFile || running} />
+          <button type="submit" style={buttonStyle} disabled={uploadingFile || running}>
+            {uploadingFile ? "Uploading..." : "Upload"}
           </button>
         </form>
 
         <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 13, color: "#666" }}>Job id: {jobId || "—"}</div>
+          <div style={{ fontSize: 13, color: "#666" }}>
+            Upload status: {uploadingFile ? "Uploading…" : uploadComplete ? `Uploaded (${uploadedDataset})` : "—"}
+          </div>
           <div
             ref={logRef}
             style={{
@@ -128,6 +181,20 @@ export default function LiveDemos() {
               <div key={i}>{l}</div>
             ))}
           </div>
+        </div>
+
+        <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+          <button
+            style={{ ...buttonStyle, background: uploadComplete && !running ? "#1f6feb" : "#999" }}
+            onClick={runSimple}
+            disabled={!uploadComplete || running}
+          >
+            {running ? "Running..." : "Run (Simple)"}
+          </button>
+
+          <button style={{ ...buttonStyle, background: "#ccc", color: "#333" }} disabled>
+            Advanced (coming soon)
+          </button>
         </div>
       </section>
 
