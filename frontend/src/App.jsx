@@ -2,6 +2,7 @@ import React from "react";
 import { Routes, Route } from "react-router-dom";
 import GaussViewer from './components/GaussViewer'
 import VideoUpload from './components/VideoUpload'
+import Converter from './components/Converter'
 import Landing from "./pages/Landing";
 import Documentation from "./pages/Documentation";
 import Reports from "./pages/Reports";
@@ -18,6 +19,9 @@ export default function App() {
         <Route path="/reports" element={<Reports />} />
         <Route path="/demos/*" element={<LiveDemos />} />
         <Route path="/gallery" element={<Gallery />} />
+        <Route path="/converter" element={<Converter />} />
+        <Route path="/upload" element={<VideoUpload />} />
+        <Route path="/viewer" element={<GaussViewer />} />
       </Routes>
     </div>
   );
