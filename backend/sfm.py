@@ -16,7 +16,7 @@ def sfm(in_path, out_path):
 
     # 2. Feature Matching
     # Exhaustive matching is robust for small/medium datasets
-    pycolmap.match_exhaustive(database_path)
+    pycolmap.match_sequential(database_path)
 
     # 3. Incremental Mapping
     # Performs the actual 3D reconstruction

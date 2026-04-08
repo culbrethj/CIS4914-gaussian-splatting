@@ -7,7 +7,13 @@ export default defineConfig({
   assetsInclude: ['**/*.ply', '**/*.splat'],
   server: {
     proxy: {
-      '/api': 'http://localhost:8000'
+      // proxy HTTP and WebSocket requests under /api to your FastAPI backend
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+        ws: true, // <-- enable websocket proxying
+      }
     }
   }
 })

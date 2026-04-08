@@ -16,7 +16,7 @@ DUPLICATE_THRESHOLD = 0 #3.0
 BLUR_THRESHOLD = 0 #50
 
 def run_command(cmd, cwd=HERE):
-    logging.info("Running: %s (cwd=%s)", " ".join(cmd), cwd)
+    logging.info("Running: %s (cwd=%s)", " ".join(str(cmd)), cwd)
     # subprocess.run is synchronous and will not return until the process finishes.
     subprocess.run(cmd, cwd=str(cwd), check=True)
 
