@@ -95,6 +95,6 @@ Or just run pipeline.py
 python pipeline.py truck 5000
 ```
 
-Note: I built ```./opensplat``` on Mac and it depends on opencv and pytorch, so you probably have to rebuild it on your machine. Follow instructions on this github and copy the produced binary [https://github.com/pierotofy/OpenSplat]()
+Note: I built ```./opensplat``` on Mac and it depends on opencv and pytorch, so you probably have to rebuild it on your machine. Follow instructions on this github and copy the produced binary [https://github.com/pierotofy/OpenSplat](https://github.com/pierotofy/OpenSplat)
 
 Since opensplat is hopefully temporary until we gain access to HiPerGator, it may or may not make sense to use Docker to containerize this.
