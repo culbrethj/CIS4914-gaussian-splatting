@@ -21,6 +21,13 @@ export default function LiveDemos() {
   const [uploadedDataset, setUploadedDataset] = useState(null);
   const [running, setRunning] = useState(false); // pipeline run state
   const [datasetName, setDatasetName] = useState(""); // <-- new
+  const [advancedActive, setAdvancedActive] = useState(false); // new: whether advanced UI is shown
+  // advanced fields:
+  const [blurThreshold, setBlurThreshold] = useState(0);
+  const [duplicateThreshold, setDuplicateThreshold] = useState(0);
+  const [fps, setFps] = useState(30);
+  const [downscale, setDownscale] = useState(1);
+  const [numIters, setNumIters] = useState(1000);
   const wsRef = useRef(null);
   const logRef = useRef(null);
 
@@ -56,6 +63,7 @@ export default function LiveDemos() {
       // close when job done
       if (ev.data.startsWith("<<DONE:") || ev.data.startsWith("<<ERROR:")) {
         setUploadingFile(false);
+        setRunning(false); // job finished
         ws.close();
         wsRef.current = null;
         // refresh datasets list after job finishes (only keep those with splat)
@@ -135,6 +143,43 @@ export default function LiveDemos() {
     }
   }
 
+  // new: run with advanced parameters
+  async function runAdvanced() {
+    if (!uploadedDataset) return;
+    setRunning(true);
+    setLogs([]);
+    setJobId(null);
+
+    const payload = {
+      dataset: uploadedDataset,
+      iters: Number(numIters),
+      only: "all",
+      // extra advanced params sent to backend (backend may ignore unknown keys)
+      blur_threshold: Number(blurThreshold),
+      duplicate_threshold: Number(duplicateThreshold),
+      fps: Number(fps),
+      downscale: Number(downscale),
+    };
+
+    try {
+      const res = await fetch("/api/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || "run failed");
+      }
+      const data = await res.json();
+      setJobId(data.job_id);
+      openWS(data.job_id);
+    } catch (e) {
+      setRunning(false);
+      setLogs((l) => [...l, `Run error: ${String(e)}`]);
+    }
+  }
+
   const selectedEntry = datasets.find((d) => d.name === selected) || null;
 
   return (
@@ -185,17 +230,100 @@ export default function LiveDemos() {
 
         <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
           <button
-            style={{ ...buttonStyle, background: uploadComplete && !running ? "#1f6feb" : "#999" }}
+            style={{ ...buttonStyle, background: uploadComplete && !running && !advancedActive ? "#1f6feb" : "#999" }}
             onClick={runSimple}
-            disabled={!uploadComplete || running}
+            disabled={!uploadComplete || running || advancedActive}
           >
             {running ? "Running..." : "Run (Simple)"}
           </button>
 
-          <button style={{ ...buttonStyle, background: "#ccc", color: "#333" }} disabled>
-            Advanced (coming soon)
+          <button
+            onClick={() => setAdvancedActive((v) => !v)}
+            style={{
+              ...buttonStyle,
+              background: advancedActive ? "#1f6feb" : "#ccc",
+              color: advancedActive ? "#fff" : "#333",
+            }}
+            disabled={running}
+          >
+            {advancedActive ? "Advanced (active)" : "Advanced"}
           </button>
         </div>
+
+        {/* Advanced options panel */}
+        {advancedActive && (
+          <div style={{ marginTop: 12, padding: 12, borderRadius: 8, background: "#f5f7fb", maxWidth: 720 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <label style={{ display: "flex", flexDirection: "column", fontSize: 13 }}>
+                Blur threshold
+                <input
+                  type="number"
+                  value={blurThreshold}
+                  onChange={(e) => setBlurThreshold(e.target.value)}
+                  style={{ padding: "6px 8px", borderRadius: 6 }}
+                />
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", fontSize: 13 }}>
+                Duplicate threshold
+                <input
+                  type="number"
+                  value={duplicateThreshold}
+                  onChange={(e) => setDuplicateThreshold(e.target.value)}
+                  style={{ padding: "6px 8px", borderRadius: 6 }}
+                />
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", fontSize: 13 }}>
+                FPS
+                <input
+                  type="number"
+                  value={fps}
+                  onChange={(e) => setFps(e.target.value)}
+                  style={{ padding: "6px 8px", borderRadius: 6 }}
+                />
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", fontSize: 13 }}>
+                Downscale factor
+                <input
+                  type="number"
+                  value={downscale}
+                  onChange={(e) => setDownscale(e.target.value)}
+                  style={{ padding: "6px 8px", borderRadius: 6 }}
+                />
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", fontSize: 13 }}>
+                Num iterations
+                <input
+                  type="number"
+                  value={numIters}
+                  onChange={(e) => setNumIters(e.target.value)}
+                  style={{ padding: "6px 8px", borderRadius: 6 }}
+                />
+              </label>
+            </div>
+
+            <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+              <button
+                onClick={runAdvanced}
+                style={{ ...buttonStyle, background: uploadComplete && !running ? "#1f6feb" : "#999" }}
+                disabled={!uploadComplete || running}
+              >
+                {running ? "Running..." : "Run (Advanced)"}
+              </button>
+
+              <button
+                onClick={() => setAdvancedActive(false)}
+                style={{ ...buttonStyle, background: "#eee", color: "#333" }}
+                disabled={running}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       <section style={{ marginTop: 24 }}>
