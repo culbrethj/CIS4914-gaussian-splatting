@@ -14,7 +14,7 @@ HERE = Path(__file__).resolve().parent
 app = FastAPI()
 
 # ensure an hpg dir exists (contains splat files on Hipergator)
-hpg_dir = HERE / "hpg"
+hpg_dir = HERE / "hipergator"
 hpg_dir.mkdir(parents=True, exist_ok=True)
 
 # mount datasets directory so frontend can fetch files directly:
