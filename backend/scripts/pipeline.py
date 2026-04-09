@@ -12,6 +12,7 @@ from converter import ply_to_splat
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 HERE = Path(__file__).resolve().parent
+PARENT = HERE.parent
 
 # TODO: Need to tune thresholds. At 3, 50 had issues with sfm failing
 DUPLICATE_THRESHOLD = 0 #3.0
@@ -31,7 +32,7 @@ def run_opensplat(dataset_path, num_iters):
     exe = ""
     if sys.platform == "win32":
         exe = ".exe"
-    opensplat_path = HERE / f"opensplat{exe}"
+    opensplat_path = PARENT / f"binaries/opensplat{exe}"
 
     if opensplat_path.exists() and opensplat_path.is_file():
         exe = str(opensplat_path)
@@ -78,7 +79,7 @@ def main():
     )
     args = parser.parse_args()
 
-    dataset_path = HERE / "datasets" / args.dataset
+    dataset_path = PARENT / "datasets" / args.dataset
     dataset_path.mkdir(parents=True, exist_ok=True)
 
     try:

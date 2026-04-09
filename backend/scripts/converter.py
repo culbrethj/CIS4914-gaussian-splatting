@@ -1,8 +1,7 @@
 import math
 import os
 import struct
-
-import gradio as gr
+import sys
 
 SH_C0 = 0.28209479177387814
 
@@ -206,14 +205,5 @@ def ply_to_splat(ply_path):
 
     return splat_path
 
-
-app = gr.Interface(
-    fn=ply_to_splat,
-    title="PLY to SPLAT",
-    description="Convert a .ply gaussian splat file to a .splat file",
-    inputs=gr.Model3D(label="Input .ply file"),
-    outputs=gr.Model3D(label="Output .splat file"),
-)
-
 if __name__ == "__main__":
-    app.launch()
+    ply_to_splat(sys.argv[1])

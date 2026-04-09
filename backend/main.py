@@ -103,7 +103,7 @@ async def run_pipeline(payload: dict = Body(...)):
 
         video_path = video_files[0]
 
-        pipeline_path = HERE / "pipeline.py"
+        pipeline_path = HERE / "scripts/pipeline.py"
         if not pipeline_path.exists():
             raise HTTPException(status_code=500, detail="pipeline.py not found on server")
 
