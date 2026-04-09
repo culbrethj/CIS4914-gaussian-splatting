@@ -7,6 +7,8 @@ import logging
 from sfm import sfm
 from frame_slicer import video_slicer
 from preprocessor import preprocessor
+from converter import ply_to_splat
+
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 HERE = Path(__file__).resolve().parent
@@ -44,6 +46,8 @@ def run_opensplat(dataset_path, num_iters):
         ]
 
         run_command(cmd)
+
+        ply_to_splat(str(output_ply))
 
     else:
         raise FileNotFoundError("opensplat not found (expected ./opensplat)")
