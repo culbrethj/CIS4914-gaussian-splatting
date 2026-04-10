@@ -14,9 +14,6 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 HERE = Path(__file__).resolve().parent
 PARENT = HERE.parent
 
-# TODO: Need to tune thresholds. At 3, 50 had issues with sfm failing
-DUPLICATE_THRESHOLD = 0 #3.0
-BLUR_THRESHOLD = 0 #50
 
 def run_command(cmd, cwd=HERE):
     logging.info("Running: %s (cwd=%s)", " ".join(str(cmd)), cwd)
@@ -53,7 +50,7 @@ def run_opensplat(dataset_path, num_iters):
     else:
         raise FileNotFoundError("opensplat not found (expected ./opensplat)")
     
-def run_prepare(dataset_path, video_path, img_format):
+def run_prepare(dataset_path, video_path, img_format, duplicate_threshold=0, blur_threshold=0):
     raw_path = dataset_path / "raw"
     images_path = dataset_path / "images"
 
@@ -62,7 +59,7 @@ def run_prepare(dataset_path, video_path, img_format):
     logging.info("Video slicing finished")
 
     logging.info("Starting preprocessing")
-    preprocessor(raw_path, images_path, DUPLICATE_THRESHOLD, BLUR_THRESHOLD)
+    preprocessor(raw_path, images_path, duplicate_threshold, blur_threshold)
     logging.info("Preprocessing finished")
 
 def main():
@@ -77,6 +74,10 @@ def main():
         default="all",
         help="Which step to run (default: all)",
     )
+    parser.add_argument("--blur_threshold", type=float, default=0,
+                        help="Blur threshold for frame filtering")
+    parser.add_argument("--duplicate_threshold", type=float, default=0,
+                        help="Duplicate threshold for frame filtering")
     args = parser.parse_args()
 
     dataset_path = PARENT / "datasets" / args.dataset
@@ -89,7 +90,8 @@ def main():
             video_path = Path(args.video).resolve()
             if not video_path.exists():
                 raise FileNotFoundError(f"Video not found {video_path}")
-            run_prepare(dataset_path, video_path, args.img_format)
+            run_prepare(dataset_path, video_path, args.img_format,
+                        args.blur_threshold, args.duplicate_threshold)
         if args.only in ("sfm", "all"):
             logging.info("Starting SfM step")
             run_sfm(dataset_path)
