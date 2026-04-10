@@ -111,6 +111,7 @@ async def run_pipeline(payload: dict = Body(...)):
         only = payload.get("only", "all")
         blur_threshold = str(payload.get("blur_threshold", 0))
         duplicate_threshold = str(payload.get("duplicate_threshold", 0))
+        fps = str(payload.get("fps", 0))
 
         # build command (same parameters used previously)
         cmd = [sys.executable,
@@ -120,7 +121,8 @@ async def run_pipeline(payload: dict = Body(...)):
                "--iters", iters,
                "--only", only,
                "--blur_threshold", blur_threshold,
-               "--duplicate_threshold", duplicate_threshold]
+               "--duplicate_threshold", duplicate_threshold,
+               "--fps", fps]
 
         # create job id and queue
         job_id = uuid.uuid4().hex

@@ -50,12 +50,12 @@ def run_opensplat(dataset_path, num_iters):
     else:
         raise FileNotFoundError("opensplat not found (expected ./opensplat)")
     
-def run_prepare(dataset_path, video_path, img_format, duplicate_threshold=0, blur_threshold=0):
+def run_prepare(dataset_path, video_path, img_format, duplicate_threshold=0, blur_threshold=0, fps=None):
     raw_path = dataset_path / "raw"
     images_path = dataset_path / "images"
 
     logging.info("Starting video slicing")
-    video_slicer(video_path, raw_path, img_format)
+    video_slicer(video_path, raw_path, img_format, fps)
     logging.info("Video slicing finished")
 
     logging.info("Starting preprocessing")
@@ -78,6 +78,8 @@ def main():
                         help="Blur threshold for frame filtering")
     parser.add_argument("--duplicate_threshold", type=float, default=0,
                         help="Duplicate threshold for frame filtering")
+    parser.add_argument("--fps", type=float, default=None,
+                        help="Set fps for frame extraction")
     args = parser.parse_args()
 
     dataset_path = PARENT / "datasets" / args.dataset
@@ -91,7 +93,7 @@ def main():
             if not video_path.exists():
                 raise FileNotFoundError(f"Video not found {video_path}")
             run_prepare(dataset_path, video_path, args.img_format,
-                        args.blur_threshold, args.duplicate_threshold)
+                        args.blur_threshold, args.duplicate_threshold, args.fps)
         if args.only in ("sfm", "all"):
             logging.info("Starting SfM step")
             run_sfm(dataset_path)
