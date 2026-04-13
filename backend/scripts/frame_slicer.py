@@ -3,12 +3,18 @@ from preprocessor import preprocessor
 import cv2
 
 
-def video_slicer(video_path, output_dir, img_format):
+def video_slicer(video_path, output_dir, img_format, fps=None):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     video = cv2.VideoCapture(str(video_path))
     if not video.isOpened():
         raise RuntimeError(f"Could not open {video_path}")
+    
+    native_fps = video.get(cv2.CAP_PROP_FPS)
+    if(fps and fps > 0):
+        step = max(1, round(native_fps / fps))
+    else:
+        step = 1
     
     i = 0
     while True:
@@ -16,10 +22,11 @@ def video_slicer(video_path, output_dir, img_format):
         if not cont:
             break
         
-        filename = f"frame_{i:06d}.{img_format}"
-        output_path = output_dir / filename
+        if i % step == 0:
+            filename = f"frame_{i:06d}.{img_format}"
+            output_path = output_dir / filename
 
-        cv2.imwrite(output_path, frame)
+            cv2.imwrite(output_path, frame)
         i += 1
 
     video.release()

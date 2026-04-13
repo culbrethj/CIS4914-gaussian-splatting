@@ -12,3 +12,4 @@ backend/data_output
 # OpenSplat runtime deps
 backend/*.dll
 backend/*.exe
+backend/binaries/*.dll
