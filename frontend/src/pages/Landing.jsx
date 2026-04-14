@@ -1,7 +1,10 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
+import gaussGuide from '../assets/gauss_guide.gif';
 
 export default function Landing() {
+  const [isVisible, setIsVisible] = useState(false);
+
   return (
     <main style={s.page}>
       <div style={s.hero}>
@@ -52,6 +55,18 @@ export default function Landing() {
               {i < arr.length - 1 && <div style={s.flowArrow}>→</div>}
             </React.Fragment>
           ))}
+        </div>
+        
+        <div style={s.showMoreSection}>
+          <button onClick={() => setIsVisible(!isVisible)} style={s.showMoreBtn}>
+            {isVisible ? "Show less" : "Show more"}
+          </button>
+
+          {isVisible && (
+            <div style={s.expandedAssetWrap}>
+              <img src={gaussGuide} style={s.expandedImg} />
+            </div>
+          )}
         </div>
       </div>
     </main>
@@ -219,4 +234,36 @@ stepColors: [
     borderTop: "3px solid #ef4444",
   },
 ],
+showMoreSection: {
+    // marginTop: 32,
+    paddingTop: 24,
+    // borderTop: "1px solid #f0f0f0",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 24,
+  },
+  showMoreBtn: {
+    background: "#f5f5f7",
+    border: "1px solid #e5e5e7",
+    color: "#1d1d1f",
+    padding: "8px 16px",
+    borderRadius: 99,
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+  },
+  expandedAssetWrap: {
+    width: "100%",
+    overflow: "hidden",
+    borderRadius: 12,
+    border: "1px solid #ececec",
+    animation: "fadeIn 0.4s ease-out",
+  },
+  expandedImg: {
+    width: "100%",
+    display: "block",
+    height: "auto",
+  }
 };
