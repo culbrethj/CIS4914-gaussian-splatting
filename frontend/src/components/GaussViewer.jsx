@@ -121,7 +121,7 @@ export default function GaussViewer({ datasetName = null, splatApiPath = null })
                         <Splat
                             key={loadedGaussModel}
                             src={loadedGaussModel}
-                            rotation={[0.75 * Math.PI, -.02 * Math.PI, .55 * Math.PI]}
+                            // rotation={[0.75 * Math.PI, -.02 * Math.PI, .55 * Math.PI]}
                         />
                     ) : null}
                 </Canvas>
