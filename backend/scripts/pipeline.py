@@ -166,13 +166,41 @@ def run_opensplat(dataset_path: Path, num_iters: int):
         str(num_iters),
     ]
 
+    # Capture opensplat stdout so the metrics collector can parse it after.
+    # We still forward every line to our own stdout so the user sees live
+    # progress in the web UI log stream.
+    run_tag_ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    run_tag = f"{dataset_path.name}_opensplat_{run_tag_ts}"
+    metrics_dir = dataset_path / "metrics" / run_tag
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+    train_log = metrics_dir / "train_stdout.log"
+
+    logger.info("Running: %s", " ".join(str(p) for p in cmd))
+    train_start_epoch = time.time()
+    captured_lines: list[str] = []
     try:
-        run_command(cmd)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=str(HERE), text=True, bufsize=1)
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            sys.stdout.write(line)
+            captured_lines.append(line)
+        rc = proc.wait()
+        if rc != 0:
+            raise subprocess.CalledProcessError(rc, cmd)
     except subprocess.CalledProcessError as exc:
+        try:
+            train_log.write_text("".join(captured_lines))
+        except Exception:
+            pass
         raise RuntimeError(
             "OpenSplat runtime failed. This local binary likely depends on missing local dylibs/libraries. "
             "Use a rebuilt local binary or run remote OpenSplat on HiPerGator."
         ) from exc
+
+    try:
+        train_log.write_text("".join(captured_lines))
+    except Exception:
+        pass
 
     if not output_ply.exists() or output_ply.stat().st_size == 0:
         raise RuntimeError("opensplat did not produce a valid splat.ply")
@@ -182,6 +210,42 @@ def run_opensplat(dataset_path: Path, num_iters: int):
         raise RuntimeError("PLY to SPLAT conversion failed")
 
     logger.info("Produced output: %s", output_splat)
+
+    # Best-effort metrics collection for the OpenSplat path. The collector
+    # pulls whatever PSNR/iteration info it can scrape from the captured log
+    # plus gaussian count from the PLY. SSIM/LPIPS stay null (OpenSplat
+    # doesn't emit eval images). If the collector or plotter errors out,
+    # training still counts as a success - we just log a warning.
+    metrics_collector = HERE / "metrics_collector.py"
+    metrics_plotter = HERE / "metrics_plotter.py"
+    if metrics_collector.is_file():
+        try:
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(metrics_collector),
+                    "--run-dir", str(dataset_path),
+                    "--log-file", str(train_log),
+                    "--out-dir", str(metrics_dir),
+                    "--backend", "opensplat",
+                    "--dataset", dataset_path.name,
+                    "--run-tag", run_tag,
+                    "--iterations", str(num_iters),
+                    "--start-epoch", str(train_start_epoch),
+                ],
+                check=True,
+            )
+        except Exception as exc:
+            logger.warning("metrics_collector failed: %s", exc)
+    if metrics_plotter.is_file():
+        try:
+            subprocess.run(
+                [sys.executable, str(metrics_plotter), "--metrics-dir", str(metrics_dir),
+                 "--title-prefix", f"{dataset_path.name} {run_tag}"],
+                check=True,
+            )
+        except Exception as exc:
+            logger.warning("metrics_plotter failed: %s", exc)
 
 
 def run_prepare(

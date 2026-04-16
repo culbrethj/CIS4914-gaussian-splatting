@@ -1,23 +1,29 @@
 from __future__ import annotations
 
 import asyncio
+import io
+import json
 import logging
 import os
 import re
 import shutil
 import sys
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 HERE = Path(__file__).resolve().parent
 DATASET_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 ALLOWED_VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 ALLOWED_PIPELINE_STEPS = {"prepare", "sfm", "opensplat", "all"}
+# Two training backends can be selected from the UI:
+#   opensplat - runs locally against the bundled binary (CPU or CUDA)
+#   fastergs  - sends the job to HiPerGator and trains there
 ALLOWED_BACKENDS = {"opensplat", "fastergs"}
 ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 DEFAULT_DUPLICATE_THRESHOLD = 1.5
@@ -398,6 +404,10 @@ async def run_pipeline(payload: dict = Body(...)):
                 str(params["max_width"]),
             ]
         else:
+            # Faster-GS path. The orchestrator script handles the local
+            # preprocess + remote SfM/undistort + remote training + fetch.
+            # HPG knobs come from env vars so deployment can override without
+            # changing code (e.g. switching train partition from b200 to a100).
             fastergs_pipeline_path = HERE / "scripts/fastergs_pipeline.py"
             if not fastergs_pipeline_path.exists():
                 raise HTTPException(status_code=500, detail="fastergs_pipeline.py not found on server")
@@ -567,6 +577,10 @@ async def list_hpg_splats():
     Return JSON list of .splat files found under backend/hpg.
     Each entry: { name, filename, api_path } where api_path is /api/hpg/<filename>/splat
     """
+    # This endpoint powers the Gallery page. It lists any .splat in
+    # backend/hipergator/ (where fastergs_pipeline.py publishes its outputs,
+    # plus any showcase files teammates have committed). We keep it flat (not
+    # nested by dataset) so the gallery picker is just a flat list.
     out = []
     if not hpg_dir.exists() or not hpg_dir.is_dir():
         return JSONResponse(out)
@@ -591,3 +605,123 @@ async def get_hpg_splat(filename: str):
     if p.parent != hpg_dir.resolve() or not p.exists() or not p.is_file():
         raise HTTPException(status_code=404, detail="splat not found")
     return FileResponse(path=str(p), media_type="application/octet-stream", filename=p.name)
+
+
+# --- Metrics endpoints ---
+# The frontend Reports page reads these. Every route tolerates missing files
+# (returns 404) rather than crashing, so a dataset with no runs yet is fine.
+
+ALLOWED_PLOT_NAMES = {
+    "psnr", "ssim", "lpips", "loss", "num_gaussians", "splats_per_frame", "wall_seconds",
+}
+
+
+def _safe_run_tag(run_tag: str) -> str:
+    # Run tags look like "can_train_20260414_1230". Accept the same charset
+    # as dataset names so we can reuse the pattern and keep path traversal
+    # closed off.
+    if not DATASET_RE.fullmatch(run_tag):
+        raise HTTPException(status_code=400, detail="invalid run_tag")
+    if Path(run_tag).name != run_tag:
+        raise HTTPException(status_code=400, detail="invalid run_tag")
+    return run_tag
+
+
+def _metrics_root_for(dataset_name: str) -> Path:
+    ds_dir = _dataset_dir(dataset_name)
+    return (ds_dir / "metrics").resolve()
+
+
+def _run_metrics_dir(dataset_name: str, run_tag: str) -> Path:
+    safe_tag = _safe_run_tag(run_tag)
+    root = _metrics_root_for(dataset_name)
+    p = (root / safe_tag).resolve()
+    if p.parent != root:
+        raise HTTPException(status_code=400, detail="invalid metrics path")
+    if not p.is_dir():
+        raise HTTPException(status_code=404, detail="metrics run not found")
+    return p
+
+
+@app.get("/api/datasets/{dataset_name}/metrics")
+async def list_dataset_metrics(dataset_name: str):
+    """List every run tag under this dataset that has a metrics_summary.json."""
+    try:
+        root = _metrics_root_for(dataset_name)
+    except HTTPException:
+        return JSONResponse([])
+
+    out = []
+    if not root.is_dir():
+        return JSONResponse(out)
+    for entry in sorted(root.iterdir(), key=lambda p: p.name, reverse=True):
+        if not entry.is_dir():
+            continue
+        summary_path = entry / "metrics_summary.json"
+        summary = None
+        if summary_path.is_file():
+            try:
+                summary = json.loads(summary_path.read_text())
+            except Exception:
+                summary = None
+        out.append({
+            "run_tag": entry.name,
+            "summary": summary,
+            "has_series": (entry / "metrics.jsonl").is_file(),
+        })
+    return JSONResponse(out)
+
+
+@app.get("/api/datasets/{dataset_name}/metrics/{run_tag}/summary")
+async def get_metrics_summary(dataset_name: str, run_tag: str):
+    d = _run_metrics_dir(dataset_name, run_tag)
+    p = d / "metrics_summary.json"
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="metrics_summary.json not found")
+    try:
+        return JSONResponse(json.loads(p.read_text()))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"corrupt summary: {exc}") from exc
+
+
+@app.get("/api/datasets/{dataset_name}/metrics/{run_tag}/series")
+async def get_metrics_series(dataset_name: str, run_tag: str):
+    d = _run_metrics_dir(dataset_name, run_tag)
+    p = d / "metrics.jsonl"
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="metrics.jsonl not found")
+    records = []
+    try:
+        for line in p.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            records.append(json.loads(line))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"corrupt series: {exc}") from exc
+    return JSONResponse(records)
+
+
+@app.get("/api/datasets/{dataset_name}/metrics/{run_tag}/plot/{plot_name}.png")
+async def get_metrics_plot(dataset_name: str, run_tag: str, plot_name: str):
+    if plot_name not in ALLOWED_PLOT_NAMES:
+        raise HTTPException(status_code=400, detail="unknown plot name")
+    d = _run_metrics_dir(dataset_name, run_tag)
+    p = d / f"{plot_name}.png"
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="plot not found")
+    return FileResponse(path=str(p), media_type="image/png", filename=p.name)
+
+
+@app.get("/api/datasets/{dataset_name}/metrics/{run_tag}/download")
+async def download_metrics_bundle(dataset_name: str, run_tag: str):
+    """Zip of summary + series + every PNG for this run, for archival."""
+    d = _run_metrics_dir(dataset_name, run_tag)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for entry in d.iterdir():
+            if entry.is_file() and entry.suffix.lower() in {".json", ".jsonl", ".png", ".log"}:
+                zf.write(entry, arcname=entry.name)
+    buf.seek(0)
+    headers = {"Content-Disposition": f'attachment; filename="{run_tag}_metrics.zip"'}
+    return StreamingResponse(buf, media_type="application/zip", headers=headers)

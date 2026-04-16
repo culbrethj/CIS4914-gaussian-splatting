@@ -6,6 +6,11 @@ import subprocess
 import sys
 from datetime import datetime
 
+# Sets up the gs_final workspace tree on HPG and rsyncs cleaned images into
+# it. This is an HPG-to-HPG helper (both source and dest live on /blue), used
+# when you already uploaded images via some other path and just want to seed
+# gs_final from them. For the main web flow the upload happens inside
+# fastergs_pipeline.py via rsync over SSH.
 DEFAULT_REMOTE_ROOT = "/blue/cis4914/joshuabowman/gs_final"
 DEFAULT_SOURCE_DATASETS_ROOT = "/blue/cis4914/joshuabowman/gaussian-splatting/experiments/faster-gs/datasets"
 

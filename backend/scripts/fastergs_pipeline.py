@@ -22,6 +22,8 @@ def run_cmd(cmd: list[str]):
 
 
 def common_ssh_options(*, use_mux: bool, control_persist: str) -> list[str]:
+    # SSH multiplexing reuses one TCP connection for every ssh/rsync we run during a job.
+    # Without this we'd re-auth on every step and HPG's login nodes get grumpy about that.
     opts: list[str] = []
     if use_mux:
         opts.extend(
@@ -51,6 +53,11 @@ def latest_matching_file(folder: Path, pattern: str) -> Path | None:
 
 
 def main():
+    # End-to-end orchestrator for the Faster-GS backend.
+    # Flow: local preprocess -> rsync images to HPG -> SLURM SfM+undistort
+    # -> SLURM GPU training -> fetch .splat back -> publish into datasets/.
+    # We keep preprocess local (faster turnaround + we already have OpenCV here)
+    # and only push compute-heavy steps to HPG.
     parser = argparse.ArgumentParser(
         description="Orchestrate local prepare + HiPerGator Faster-GS prepare/train and publish .splat for frontend viewer."
     )
@@ -128,6 +135,8 @@ def main():
     log("INFO: Starting Faster-GS sync (uploading preprocessed images to HiPerGator)")
     ssh_opts = common_ssh_options(use_mux=not args.no_ssh_mux, control_persist=args.ssh_control_persist)
     ssh_base = ["ssh", "-p", str(args.port), *(["-i", args.identity_file] if args.identity_file else []), *ssh_opts]
+    # make sure the target dirs exist on HPG before rsync tries to write into them.
+    # bash -lc so the remote sees the login environment (modules etc) in case any are sourced.
     run_cmd(
         ssh_base
         + [
@@ -219,6 +228,10 @@ def main():
     )
     log("INFO: Gaussian Splatting finished successfully")
 
+    # Training writes timestamped artifacts (so we can keep old runs around).
+    # We pick the most recent one and publish it to two stable paths:
+    #   datasets/<ds>/splat.splat  -> what the frontend viewer loads for this dataset
+    #   hipergator/<ds>_fastergs_latest.splat -> what the gallery page lists
     latest_splat = latest_matching_file(fetch_dir, f"{args.dataset}_train_*.splat")
     latest_ply = latest_matching_file(fetch_dir, f"{args.dataset}_train_*.ply")
     if latest_splat is None:
@@ -236,6 +249,36 @@ def main():
 
     log(f"INFO: Final .splat published to {target_dataset_splat}")
     log(f"INFO: Gallery .splat published to {target_gallery_splat}")
+
+    # Local fallback plotting pass. hpg_gs_final_train.py already runs the
+    # plotter on HPG, but if matplotlib isn't installed in the remote env the
+    # PNGs won't be there. We look for any run dirs that have metrics.jsonl
+    # but no psnr.png and render them here.
+    metrics_root = dataset_dir / "metrics"
+    plotter_path = scripts_dir / "metrics_plotter.py"
+    if metrics_root.is_dir() and plotter_path.is_file():
+        for run_metrics_dir in sorted(metrics_root.iterdir()):
+            if not run_metrics_dir.is_dir():
+                continue
+            if not (run_metrics_dir / "metrics.jsonl").is_file():
+                continue
+            if (run_metrics_dir / "psnr.png").is_file():
+                continue
+            try:
+                log(f"INFO: Rendering metrics PNGs locally for {run_metrics_dir.name}")
+                subprocess.run(
+                    [
+                        sys.executable,
+                        str(plotter_path),
+                        "--metrics-dir",
+                        str(run_metrics_dir),
+                        "--title-prefix",
+                        f"{args.dataset} {run_metrics_dir.name}",
+                    ],
+                    check=True,
+                )
+            except Exception as exc:
+                log(f"WARN: Local metrics plotter failed for {run_metrics_dir.name}: {exc}")
 
 
 if __name__ == "__main__":

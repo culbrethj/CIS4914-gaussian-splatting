@@ -144,6 +144,20 @@ def build_sbatch_script(
     out_path: str,
     err_path: str,
 ) -> str:
+    # Builds the sbatch script that runs on HPG. The script does:
+    #   1) SIFT feature extraction with SIMPLE_RADIAL camera model
+    #   2) sequential matching (works well for video-extracted frames)
+    #   3) incremental mapping -> sparse model
+    #   4) image_undistorter  <-- this is the important step
+    # Step 4 rewrites the images + sparse model into an undistorted PINHOLE
+    # space. We need PINHOLE because the Faster-GS Inria fork's dataset
+    # loader only supports PINHOLE/SIMPLE_PINHOLE. Then we run preflight to
+    # make sure the output is actually what the trainer expects.
+    #
+    # COLMAP runs inside an apptainer (singularity) container at
+    # /apps/colmap/3.11/container.sif — HPG login nodes don't have COLMAP on
+    # the PATH directly. The --bind mounts /blue so the container sees our
+    # dataset dirs.
     lines = [
         "#!/bin/bash",
         "#SBATCH --job-name=gsf_prepare",
@@ -229,6 +243,9 @@ $COLMAP image_undistorter \
   --output_path "$UND" \
   --output_type COLMAP
 
+# image_undistorter writes sparse/cameras.bin directly (no sparse/0/ subdir),
+# but the Faster-GS loader expects the standard COLMAP sparse/0/ layout.
+# Flatten/rename it here so the downstream trainer finds what it expects.
 if [ -d "$UND/sparse" ] && [ ! -d "$UND/sparse/0" ]; then
   if [ -f "$UND/sparse/cameras.bin" ] && [ -f "$UND/sparse/images.bin" ] && [ -f "$UND/sparse/points3D.bin" ]; then
     mkdir -p "$UND/sparse/0"

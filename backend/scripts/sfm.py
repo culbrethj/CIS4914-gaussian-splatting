@@ -10,12 +10,18 @@ logger = logging.getLogger("gaussian.sfm")
 
 
 def sfm(in_path, out_path):
+    # Local SfM pass for the OpenSplat backend. Uses pycolmap's default camera
+    # model (SIMPLE_RADIAL) because OpenSplat handles the distortion term
+    # itself. The Faster-GS backend takes a different path: it runs full
+    # COLMAP on HPG and undistorts to PINHOLE (see hpg_gs_final_prepare.py).
     dataset_path = Path(in_path)
     output_path = Path(out_path)
 
     if not dataset_path.exists() or not dataset_path.is_dir():
         raise FileNotFoundError(f"Input image directory not found: {dataset_path}")
 
+    # 8 is a soft floor - below this COLMAP almost never produces a usable
+    # reconstruction from hand-held video frames.
     image_files = [p for p in dataset_path.iterdir() if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png"}]
     if len(image_files) < 8:
         raise ValueError(f"Need at least 8 images for SfM, found {len(image_files)}")

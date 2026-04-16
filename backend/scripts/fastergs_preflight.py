@@ -6,7 +6,15 @@ import struct
 from collections import Counter
 from pathlib import Path
 
-# Minimal COLMAP camera-model table (matches COLMAP read_write_model and Faster-GS fork loader).
+# This file sanity-checks a COLMAP reconstruction BEFORE we hand it to the
+# Faster-GS Inria fork for training. The main thing we're guarding against is
+# the camera model mismatch: pycolmap's default output is SIMPLE_RADIAL (has a
+# distortion parameter), but the Inria loader only knows how to read
+# SIMPLE_PINHOLE or PINHOLE. If we skip this check we get a cryptic crash
+# inside the training script halfway through scene setup.
+#
+# We read cameras.bin directly (instead of using pycolmap) so this script also
+# works on HPG nodes that don't have pycolmap in the env.
 CAMERA_MODEL_IDS = {
     0: ("SIMPLE_PINHOLE", 3),
     1: ("PINHOLE", 4),
@@ -42,6 +50,9 @@ def read_camera_models(cameras_bin: Path) -> list[str]:
 
 
 def read_image_names(images_bin: Path) -> list[str]:
+    # Pull image filenames out of images.bin so we can cross-check that every
+    # image COLMAP registered is actually still on disk. Catches the case where
+    # someone deleted frames after running SfM.
     names: list[str] = []
     with images_bin.open("rb") as fid:
         num_images = _read_next(fid, 8, "Q")[0]
@@ -50,6 +61,7 @@ def read_image_names(images_bin: Path) -> list[str]:
             _read_next(fid, 8 * 7, "ddddddd")  # qvec(4), tvec(3)
             _read_next(fid, 4, "i")  # camera_id
 
+            # image name is a null-terminated utf-8 string, read byte by byte.
             name_bytes = bytearray()
             while True:
                 c = fid.read(1)
@@ -60,8 +72,9 @@ def read_image_names(images_bin: Path) -> list[str]:
                 name_bytes.extend(c)
             names.append(name_bytes.decode("utf-8", errors="replace"))
 
-            num_points2d = _read_next(fid, 8, "Q")[0]
+            # we don't actually need the 2D points, just skip past them.
             # points2D: x(double), y(double), point3D_id(long long) => 24 bytes per point
+            num_points2d = _read_next(fid, 8, "Q")[0]
             fid.seek(24 * num_points2d, 1)
     return names
 
@@ -185,6 +198,8 @@ def main():
     else:
         print_human_report(report)
 
+    # exit 0 when it's safe to train, exit 2 when it isn't.
+    # 2 (not 1) so callers can distinguish "incompatible dataset" from generic errors.
     raise SystemExit(0 if report["compatible_with_fastergs_inria_colmap_loader"] else 2)
 
 

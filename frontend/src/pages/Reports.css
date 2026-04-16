@@ -1,0 +1,200 @@
+.reports-page {
+  --ink: #0f172a;
+  --muted: #475569;
+  --line: #dbe3ef;
+  --surface: #ffffff;
+  --surface-alt: #f4f8ff;
+  --brand: #0f6bd8;
+  --brand-strong: #0048a4;
+  --good: #0f8f5f;
+  --bad: #c53535;
+  padding: 24px;
+  color: var(--ink);
+}
+
+.reports-page .page-header h2 {
+  margin: 0;
+  font-size: 1.8rem;
+}
+.reports-page .page-header p {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+.reports-page .back-link {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--brand);
+  text-decoration: none;
+}
+.reports-page .back-link:hover {
+  text-decoration: underline;
+}
+
+.reports-controls {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.reports-controls label {
+  font-weight: 600;
+  font-size: 0.95rem;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.reports-controls select,
+.reports-controls input[type="text"] {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  min-width: 240px;
+  background: white;
+}
+
+.reports-mode {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.reports-mode button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+  font-weight: 600;
+}
+.reports-mode button.active {
+  background: var(--brand);
+  color: white;
+  border-color: var(--brand-strong);
+}
+
+.run-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.run-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--surface-alt);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.run-card input {
+  margin-right: 6px;
+}
+
+.run-card.selected {
+  border-color: var(--brand);
+  background: white;
+  box-shadow: 0 0 0 2px rgba(15, 107, 216, 0.12) inset;
+}
+
+.run-card .run-tag {
+  font-weight: 600;
+  font-size: 0.95rem;
+  word-break: break-all;
+}
+.run-card .run-meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.run-card .run-actions {
+  margin-top: 4px;
+}
+
+.run-card .run-actions a {
+  font-size: 0.8rem;
+  color: var(--brand);
+  text-decoration: none;
+}
+.run-card .run-actions a:hover {
+  text-decoration: underline;
+}
+
+.reports-empty {
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 28px;
+  text-align: center;
+  color: var(--muted);
+  background: var(--surface-alt);
+  margin-top: 18px;
+}
+
+.charts-grid {
+  margin-top: 20px;
+  display: grid;
+  gap: 16px;
+}
+
+.charts-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+}
+
+.chart-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 14px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chart-card h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+
+.chart-card .chart-sub {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: -2px 0 6px;
+}
+
+.chart-card .chart-wrap {
+  height: 220px;
+  width: 100%;
+}
+
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 18px;
+  font-size: 0.9rem;
+}
+
+.summary-table th,
+.summary-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.summary-table th {
+  background: var(--surface-alt);
+  font-weight: 700;
+  color: var(--muted);
+}

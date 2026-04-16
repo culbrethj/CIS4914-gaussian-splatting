@@ -133,6 +133,9 @@ def preprocessor(
 
             gray_img = cv2.cvtColor(resized_image, cv2.COLOR_BGR2GRAY)
 
+            # Blur score = variance of the Laplacian. Low variance means the
+            # image has few sharp edges, so it's probably motion-blurred or
+            # out of focus. Anything under blur_threshold gets dropped.
             laplacian = cv2.Laplacian(gray_img, cv2.CV_64F)
             blur_score = float(laplacian.var())
             blur_scores.append(blur_score)
@@ -146,6 +149,10 @@ def preprocessor(
                 decision = "drop"
                 reason = "blur"
             else:
+                # Duplicate detection: shrink to 64x36 and compare to the
+                # previous kept frame with mean absolute difference. Tiny
+                # numbers mean "almost identical to the previous frame" so we
+                # skip it - no new information for SfM.
                 downscaled_img = cv2.resize(gray_img, (64, 36), interpolation=cv2.INTER_AREA)
 
                 keep = True

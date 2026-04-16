@@ -3,7 +3,13 @@ import { Link } from "react-router-dom";
 import GaussViewer from "../components/GaussViewer";
 import "./LiveDemos.css";
 
+// Must match the DATASET_RE in backend/main.py so names we accept here are
+// also accepted on the server side. Keep these in sync.
 const DATASET_NAME_RE = /^[A-Za-z0-9_.-]+$/;
+
+// Default prep knobs. These mirror the defaults in pipeline.py; we set them
+// here so the "advanced" panel starts populated with the same numbers the
+// backend would use if the user never touches the panel.
 const SIMPLE_PREP_DEFAULTS = {
   iters: 1000,
   duplicateThreshold: 1.5,
@@ -26,6 +32,11 @@ const BACKEND_OPTIONS = [
 ];
 const ACTIVE_JOB_STORAGE_KEY = "live_demos_active_job";
 
+// Color-code each log line in the feed. The "<<error:" / "<<done:N" markers
+// are control lines the server injects to signal status; plain "error" or
+// "warning" substrings come from whichever subprocess (colmap, training,
+// rsync) printed the line. Order of checks matters - the explicit markers
+// win over the substring heuristics.
 function logKind(line) {
   const normalized = String(line || "").toLowerCase();
   if (normalized.startsWith("<<error:")) return "error";
@@ -222,6 +233,12 @@ export default function LiveDemos() {
     };
   }, [jobId, runStatus, closeCurrentWs, refreshDatasets, clearPersistedActiveJob]);
 
+  // Job recovery after a page refresh. Training can take 10+ minutes, so if
+  // the user reloads the page mid-run we want to reattach to the WebSocket
+  // and keep streaming logs instead of losing progress. We stash the active
+  // job id in localStorage and check it here on mount; if the server still
+  // considers that job alive, we hook back up to its log stream.
+  // The ref guard stops this from running twice under React StrictMode.
   useEffect(() => {
     if (restoreAttemptedRef.current) return;
     restoreAttemptedRef.current = true;
@@ -349,6 +366,11 @@ export default function LiveDemos() {
     };
   }, []);
 
+  // Open a WebSocket to the per-job log stream on the backend. Each line we
+  // receive is either a raw log line or a control marker "<<DONE:N>>" /
+  // "<<ERROR:...>>" that signals the pipeline finished or blew up. We use
+  // ws:// against the current host and let Vite's proxy forward it to the
+  // FastAPI server in dev.
   function openWS(id, datasetForResult) {
     closeCurrentWs();
 

@@ -10,6 +10,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+# HPG paths + pinned toolchain.
+# The repo URL is the Hahlbohm fork of the Inria gaussian-splatting repo, which
+# has the Faster-GS modifications applied. We install the CUDA backend (the
+# custom rasterizer) separately from the NeRFICG project.
+# Python 3.10.14 + CUDA 12.8 are pinned to match what B200 drivers expect.
+# TORCH_CUDA_ARCH_LIST 10.0 is the B200 arch; override if you run on a100
+# (TORCH_CUDA_ARCH_LIST=8.0) to avoid rebuilding extensions every time.
 DEFAULT_REMOTE_ROOT = "/blue/cis4914/joshuabowman/gs_final"
 DEFAULT_REPO_DIR = "/blue/cis4914/joshuabowman/gs_final/src/fastergs_inria"
 DEFAULT_REPO_URL = "https://github.com/fhahlbohm/gaussian-splatting.git"
@@ -20,6 +27,8 @@ DEFAULT_BACKEND_PIP = (
 )
 DEFAULT_CONVERTER_SCRIPT = "/blue/cis4914/joshuabowman/gs_final/src/converter.py"
 DEFAULT_PREFLIGHT_SCRIPT = "/blue/cis4914/joshuabowman/gs_final/src/fastergs_preflight.py"
+DEFAULT_METRICS_COLLECTOR_SCRIPT = "/blue/cis4914/joshuabowman/gs_final/src/metrics_collector.py"
+DEFAULT_METRICS_PLOTTER_SCRIPT = "/blue/cis4914/joshuabowman/gs_final/src/metrics_plotter.py"
 DEFAULT_PINNED_PYTHON = "3.10.14"
 DEFAULT_PINNED_TORCH = "auto"
 DEFAULT_PINNED_TORCHVISION = "auto"
@@ -223,6 +232,9 @@ def build_sbatch_script(
     backend_pip: str,
     converter_script: str,
     preflight_script: str,
+    metrics_collector_script: str,
+    metrics_plotter_script: str,
+    dataset_label_for_metrics: str,
     run_tag: str,
     slurm_time: str,
     slurm_cpus: int,
@@ -270,11 +282,16 @@ ENV_PREFIX={shlex.quote(env_prefix)}
 BACKEND_PIP={shlex.quote(backend_pip)}
 CONVERTER={shlex.quote(converter_script)}
 PREFLIGHT={shlex.quote(preflight_script)}
+METRICS_COLLECTOR={shlex.quote(metrics_collector_script)}
+METRICS_PLOTTER={shlex.quote(metrics_plotter_script)}
+METRICS_DATASET_LABEL={shlex.quote(dataset_label_for_metrics)}
 RUN_TAG={shlex.quote(run_tag)}
 
 SCENE="$ROOT/experiments/faster-gs/datasets/$DATASET"
 RUN_DIR="$ROOT/outputs/faster-gs/$RUN_TAG"
 SPLAT_OUT="$ROOT/outputs/$RUN_TAG.splat"
+METRICS_DIR="$RUN_DIR/metrics"
+TRAIN_LOG="$RUN_DIR/train_stdout.log"
 
 ensure_conda() {{
   if ! command -v conda >/dev/null 2>&1; then
@@ -471,12 +488,15 @@ PY
 }}
 
 run_training() {{
-  mkdir -p "$RUN_DIR"
+  mkdir -p "$RUN_DIR" "$METRICS_DIR"
   echo "[stage:$STAGE] scene=$SCENE"
   echo "[stage:$STAGE] run_dir=$RUN_DIR"
   echo "[stage:$STAGE] iterations={iterations}"
 
-  # B200 compatibility fallback: use standard renderer path instead of FasterGSCudaBackend rasterizer.
+  # B200 fallback: the Faster-GS custom CUDA rasterizer/optimizer currently
+  # fail to compile against B200's compute capability 10.0. Flip the flags
+  # back to the stock gaussian-splatting paths so training still runs. On
+  # a100 partitions you can leave these True for the real speedup.
   if [ -f gaussian_renderer/__init__.py ]; then
     sed -i 's/^USE_FASTERGS_RASTERIZER = True/USE_FASTERGS_RASTERIZER = False/' gaussian_renderer/__init__.py || true
     echo "[stage:$STAGE] rasterizer_mode=standard"
@@ -486,12 +506,19 @@ run_training() {{
     echo "[stage:$STAGE] optimizer_mode=adam"
   fi
 
+  # Record when training starts so metrics_collector can derive wall_seconds
+  # from ply file mtimes after the run.
+  TRAIN_START_EPOCH=$(date +%s)
+  echo "[stage:$STAGE] train_start_epoch=$TRAIN_START_EPOCH"
+
+  # Tee stdout to a log file so metrics_collector can parse loss/PSNR lines
+  # after the fact. stderr stays on the SLURM err stream.
   python train.py \
     -s "$SCENE" \
     -m "$RUN_DIR" \
     --optimizer_type default \
     --iterations {iterations} \
-    --disable_viewer
+    --disable_viewer 2>&1 | tee "$TRAIN_LOG"
 
   PLY_PATH="$(ls -1 "$RUN_DIR"/point_cloud/iteration_*/point_cloud.ply 2>/dev/null | tail -n 1 || true)"
   if [ -z "$PLY_PATH" ]; then
@@ -500,6 +527,9 @@ run_training() {{
   fi
   echo "[stage:$STAGE] ply=$PLY_PATH"
 
+  # The trainer writes a .ply, but the frontend viewer loads .splat.
+  # Convert right after training (on HPG) so we only need to scp the smaller
+  # .splat back down later.
   if [ -f "$CONVERTER" ]; then
     python "$CONVERTER" "$PLY_PATH"
     SPLAT_PATH="${{PLY_PATH%.ply}}.splat"
@@ -511,6 +541,36 @@ run_training() {{
     fi
   else
     echo "[warn] Converter script missing: $CONVERTER" >&2
+  fi
+
+  # Collect metrics from the tee'd log + saved PLYs. The collector is tolerant
+  # of missing deps (scikit-image / lpips); if they aren't installed in this
+  # env it just records loss/PSNR/gaussian counts and leaves SSIM/LPIPS null.
+  # We don't fail training if this step errors - worst case the frontend just
+  # shows "no metrics for this run".
+  if [ -f "$METRICS_COLLECTOR" ]; then
+    python "$METRICS_COLLECTOR" \
+      --run-dir "$RUN_DIR" \
+      --log-file "$TRAIN_LOG" \
+      --out-dir "$METRICS_DIR" \
+      --backend fastergs \
+      --dataset "$METRICS_DATASET_LABEL" \
+      --run-tag "$RUN_TAG" \
+      --iterations {iterations} \
+      --partition "${{SLURM_JOB_PARTITION:-}}" \
+      --start-epoch "$TRAIN_START_EPOCH" || echo "[warn] metrics_collector returned non-zero"
+  else
+    echo "[warn] metrics collector script missing: $METRICS_COLLECTOR"
+  fi
+
+  # Render PNGs from the jsonl. matplotlib uses Agg backend (headless) so this
+  # runs fine on a GPU compute node with no display.
+  if [ -f "$METRICS_PLOTTER" ]; then
+    python "$METRICS_PLOTTER" \
+      --metrics-dir "$METRICS_DIR" \
+      --title-prefix "$METRICS_DATASET_LABEL $RUN_TAG" || echo "[warn] metrics_plotter returned non-zero"
+  else
+    echo "[warn] metrics plotter script missing: $METRICS_PLOTTER"
   fi
 }}
 
@@ -597,6 +657,10 @@ def main():
     parser.add_argument("--backend-pip", default=DEFAULT_BACKEND_PIP, help="FasterGSCudaBackend pip source")
     parser.add_argument("--converter-script", default=DEFAULT_CONVERTER_SCRIPT, help="Remote converter.py path")
     parser.add_argument("--preflight-script", default=DEFAULT_PREFLIGHT_SCRIPT, help="Remote preflight script path")
+    parser.add_argument("--metrics-collector-script", default=DEFAULT_METRICS_COLLECTOR_SCRIPT, help="Remote metrics_collector.py path")
+    parser.add_argument("--metrics-plotter-script", default=DEFAULT_METRICS_PLOTTER_SCRIPT, help="Remote metrics_plotter.py path")
+    parser.add_argument("--metrics-local-dir", default=None, help="Local dir root for fetched metrics (default: backend/datasets/<dataset>/metrics)")
+    parser.add_argument("--metrics-dataset-label", default=None, help="Dataset label recorded in metrics_summary.json (default: --dataset)")
     parser.add_argument("--slurm-time", default="06:00:00", help="SLURM time limit")
     parser.add_argument("--slurm-partition", default="hpg-b200", help="SLURM partition")
     parser.add_argument("--slurm-account", default=None, help="SLURM account")
@@ -679,6 +743,31 @@ def main():
             label="preflight script",
             dry_run=args.dry_run,
         )
+
+    # Upload metrics helper scripts alongside converter/preflight so the
+    # SLURM job has local copies rather than importing anything over the wire.
+    local_metrics_collector = backend_dir / "scripts" / "metrics_collector.py"
+    local_metrics_plotter = backend_dir / "scripts" / "metrics_plotter.py"
+    if args.metrics_collector_script == DEFAULT_METRICS_COLLECTOR_SCRIPT and local_metrics_collector.is_file():
+        sync_remote_file(
+            ssh=ssh,
+            scp_base=scp_base,
+            remote_host=args.remote,
+            local_source=local_metrics_collector,
+            remote_target=args.metrics_collector_script,
+            label="metrics collector script",
+            dry_run=args.dry_run,
+        )
+    if args.metrics_plotter_script == DEFAULT_METRICS_PLOTTER_SCRIPT and local_metrics_plotter.is_file():
+        sync_remote_file(
+            ssh=ssh,
+            scp_base=scp_base,
+            remote_host=args.remote,
+            local_source=local_metrics_plotter,
+            remote_target=args.metrics_plotter_script,
+            label="metrics plotter script",
+            dry_run=args.dry_run,
+        )
     try:
         check_remote_dataset(ssh=ssh, scene_dir=remote_scene_dir, preflight_script=args.preflight_script, dry_run=args.dry_run)
     except subprocess.CalledProcessError as exc:
@@ -708,6 +797,9 @@ def main():
         backend_pip=args.backend_pip,
         converter_script=args.converter_script,
         preflight_script=args.preflight_script,
+        metrics_collector_script=args.metrics_collector_script,
+        metrics_plotter_script=args.metrics_plotter_script,
+        dataset_label_for_metrics=(args.metrics_dataset_label or args.dataset),
         run_tag=run_tag,
         slurm_time=args.slurm_time,
         slurm_cpus=args.slurm_cpus,
@@ -800,6 +892,39 @@ def main():
                 log(f"[ok] Created local .splat from fetched .ply: {local_splat_path}")
                 splat_fetched = True
         log(f"[ok] Fetched available {args.stage} artifacts to: {fetch_dir}")
+
+        # Fetch the metrics directory. Lands under either the explicit
+        # --metrics-local-dir or backend/datasets/<dataset>/metrics/<run_tag>/.
+        # The remote metrics dir may be missing if collector failed mid-run;
+        # we check existence and skip cleanly in that case.
+        if args.metrics_local_dir:
+            metrics_local_root = Path(args.metrics_local_dir).expanduser().resolve()
+        else:
+            metrics_local_root = (backend_dir / "datasets" / args.dataset / "metrics").resolve()
+        metrics_local_dir = metrics_local_root / run_tag
+        metrics_local_dir.mkdir(parents=True, exist_ok=True)
+
+        remote_metrics_dir = f"{remote_run_dir}/metrics"
+        metrics_exists = run_cmd_capture(
+            ssh + [bash_lc(f'if [ -d {shlex.quote(remote_metrics_dir)} ]; then echo yes; else echo no; fi')]
+        )
+        if metrics_exists.strip() == "yes":
+            # rsync whole directory so we pick up jsonl + summary + PNGs in one go.
+            rsync_ssh = " ".join(shlex.quote(p) for p in (["ssh", "-p", str(args.port)] + (["-i", args.identity_file] if args.identity_file else []) + ssh_opts))
+            run_cmd(
+                [
+                    "rsync",
+                    "-az",
+                    "-e",
+                    rsync_ssh,
+                    f"{args.remote}:{remote_metrics_dir}/",
+                    str(metrics_local_dir) + "/",
+                ],
+                dry_run=args.dry_run,
+            )
+            log(f"[ok] Fetched metrics to: {metrics_local_dir}")
+        else:
+            log(f"[warn] No metrics dir on remote ({remote_metrics_dir}); skipping metrics fetch.")
 
     if not args.dry_run and not final_state.startswith("COMPLETED"):
         print_log_tail(local_err, f"{args.stage} stderr log")
