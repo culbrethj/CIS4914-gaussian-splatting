@@ -13,3 +13,9 @@ backend/data_output
 backend/*.dll
 backend/*.exe
 backend/binaries/*.dll
+
+# HiPerGator artifacts (trained splats, build logs, fetched runs)
+# these are large binaries + SLURM logs, keep them local only
+backend/build_logs/
+backend/hipergator/gs_final/
+backend/hipergator/*_latest.splat

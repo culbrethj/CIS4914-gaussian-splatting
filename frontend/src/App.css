@@ -20,14 +20,6 @@ body, html, #root {
   color: #1a1a1a;
 }
 
-canvas {
-  width: 100% !important;
-  height: 500px !important;
-  border-radius: 16px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-}
-
 /* Upload card */
 .upload-card {
   background: white;

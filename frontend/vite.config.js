@@ -13,7 +13,13 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         ws: true, // <-- enable websocket proxying
-      }
+      },
+      // allow frontend dev server to load backend static preview assets
+      '/datasets': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      },
     }
   }
 })

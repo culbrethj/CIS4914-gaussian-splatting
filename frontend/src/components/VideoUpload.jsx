@@ -19,9 +19,9 @@ export default function VideoUpload() {
       const formData = new FormData();
       formData.append("video", video);
       const response = await fetch("/api/upload", { method: "POST", body: formData });
-      const data = await response.json();
+      await response.json();
       setStatus("✓ Upload complete!");
-    } catch (err) {
+    } catch {
       setStatus("✗ Upload failed. Please try again.");
     }
   };

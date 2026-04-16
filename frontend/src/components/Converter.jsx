@@ -17,7 +17,7 @@ export default function GaussViewer() {
             const scene = new SPLAT.Scene()
             await SPLAT.PLYLoader.LoadFromFileAsync(selectedFile, scene);
             scene.saveToFile(selectedFile.name.replace(".ply", ".splat"));
-        } catch (error) {
+        } catch {
             alert("Error converting file!");
         }
     };
