@@ -1,3 +1,18 @@
+"""
+Post-training metrics collector for both Faster-GS and OpenSplat runs.
+
+Parses the trainer's stdout log for iteration/loss/PSNR lines, counts
+gaussians from each saved PLY, optionally computes SSIM + LPIPS on eval
+renders if they exist on disk, and writes two files into an output dir:
+
+  metrics.jsonl         one JSON record per iteration / checkpoint
+  metrics_summary.json  dataset + shortgs metadata + final values +
+                        scale/opacity histograms from the last PLY
+
+Designed to never crash the training pipeline: when scikit-image, lpips,
+or plyfile aren't installed the relevant fields just come back null.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -28,21 +43,37 @@ from pathlib import Path
 # - Run on HPG, inside the same conda env the trainer used.
 
 
-# Inria train.py + Faster-GS trainer progress lines we can parse, e.g.:
-#   "Training progress:  10%|...| 1000/10000 [00:20<03:30, ...Loss=0.045, PSNR=25.32]"
-# We try a couple of patterns because the exact format varies by version.
+# The Inria trainer prints two kinds of lines we care about:
+#
+#   1) tqdm progress lines with iter + loss, e.g.:
+#      "Training progress:   1%| | 100/10000 [00:03<05:04, 32.51it/s, Loss=0.1450, Depth Loss=0.0000]"
+#      These arrive every few iterations and give us a dense loss curve.
+#
+#   2) Eval lines at checkpoint iterations, e.g.:
+#      "[ITER 7000] Evaluating train: L1 0.017 PSNR 32.26 ..."
+#      These are sparse (default is iters 7000 and 30000) and carry PSNR +
+#      optionally SSIM/LPIPS if the trainer was configured to compute them.
+#
+# We parse both. Progress lines set loss/psnr where present, eval lines
+# overwrite the same iteration's record with the authoritative PSNR + any
+# SSIM/LPIPS values. The final jsonl is a merged view over every iteration
+# that either kind of line mentions.
 PROGRESS_PATTERNS = [
-    re.compile(r"(?P<iter>\d+)\s*/\s*(?P<total>\d+).*?Loss\s*[:=]\s*(?P<loss>[0-9.eE+-]+).*?PSNR\s*[:=]\s*(?P<psnr>[0-9.eE+-]+)"),
-    re.compile(r"iter\w*\s*[:=]\s*(?P<iter>\d+).*?loss\s*[:=]\s*(?P<loss>[0-9.eE+-]+).*?psnr\s*[:=]\s*(?P<psnr>[0-9.eE+-]+)", re.IGNORECASE),
+    re.compile(r"(?P<iter>\d+)\s*/\s*(?P<total>\d+).*?Loss\s*[:=]\s*(?P<loss>[0-9.eE+-]+)"),
+    re.compile(r"iter\w*\s*[:=]\s*(?P<iter>\d+).*?loss\s*[:=]\s*(?P<loss>[0-9.eE+-]+)", re.IGNORECASE),
 ]
-# Evaluation summary lines the trainer sometimes prints at save iterations, e.g.:
-#   "[ITER 7000] Evaluating test: PSNR 27.41 SSIM 0.887 LPIPS 0.152"
 EVAL_PATTERN = re.compile(
     r"ITER\s*(?P<iter>\d+).*?PSNR\s*[:=]?\s*(?P<psnr>[0-9.eE+-]+)"
     r"(?:.*?SSIM\s*[:=]?\s*(?P<ssim>[0-9.eE+-]+))?"
     r"(?:.*?LPIPS\s*[:=]?\s*(?P<lpips>[0-9.eE+-]+))?",
     re.IGNORECASE,
 )
+
+# We throttle progress records: keep one record per this many iterations.
+# Trainers print progress every 10 iters; over a 10k run that's 1000 points.
+# Downsampling to every 100 iters keeps the chart readable without losing
+# the shape of the loss curve.
+PROGRESS_STRIDE = 100
 
 # OpenSplat binary prints less structured output, but we try to catch any PSNR
 # line and the final iteration count if present.
@@ -76,30 +107,31 @@ def count_ply_gaussians(ply_path: Path) -> int | None:
 
 
 def parse_progress_log(log_text: str) -> list[dict]:
-    # Walk the training log line-by-line and pull out the most recent
-    # iter/loss/PSNR we can see. The trainer prints a lot of progress lines;
-    # we deduplicate by keeping only the latest record per unique iteration.
+    # tqdm writes progress with carriage returns, not newlines, so a bash
+    # redirect glues thousands of progress updates onto a single line. We
+    # split on BOTH \r and \n to separate them.
+    segments = re.split(r"[\r\n]+", log_text)
+
     records: dict[int, dict] = {}
-    for line in log_text.splitlines():
-        matched = False
+
+    for line in segments:
+        # Progress line: iter/total ... Loss=X
         for pattern in PROGRESS_PATTERNS:
             m = pattern.search(line)
             if m:
                 try:
                     iteration = int(m.group("iter"))
                     loss = float(m.group("loss"))
-                    psnr = float(m.group("psnr"))
                 except Exception:
-                    continue
-                records[iteration] = {
-                    "iteration": iteration,
-                    "loss": loss,
-                    "psnr": psnr,
-                }
-                matched = True
+                    break
+                # downsample: only keep iterations on a stride, plus iter 0/last
+                if iteration == 0 or iteration % PROGRESS_STRIDE == 0:
+                    rec = records.get(iteration) or {"iteration": iteration}
+                    rec["loss"] = loss
+                    records[iteration] = rec
                 break
-        if matched:
-            continue
+
+        # Eval line: [ITER N] ... PSNR X (optionally SSIM Y LPIPS Z)
         m = EVAL_PATTERN.search(line)
         if m:
             try:
@@ -107,7 +139,7 @@ def parse_progress_log(log_text: str) -> list[dict]:
                 psnr = float(m.group("psnr"))
             except Exception:
                 continue
-            rec = records.get(iteration, {"iteration": iteration, "loss": None, "psnr": None})
+            rec = records.get(iteration) or {"iteration": iteration}
             rec["psnr"] = psnr
             if m.group("ssim") is not None:
                 try:
@@ -120,6 +152,14 @@ def parse_progress_log(log_text: str) -> list[dict]:
                 except Exception:
                     pass
             records[iteration] = rec
+
+    # Ensure every record has all fields so downstream code can assume keys
+    # exist (values may be None).
+    for iteration, rec in records.items():
+        rec.setdefault("loss", None)
+        rec.setdefault("psnr", None)
+        rec.setdefault("ssim", None)
+        rec.setdefault("lpips", None)
 
     return [records[k] for k in sorted(records.keys())]
 
@@ -250,27 +290,120 @@ def find_eval_dirs(run_dir: Path, iteration: int) -> tuple[Path, Path]:
     return base / "renders", base / "gt"
 
 
+def compute_ply_histograms(ply_path: Path, bins: int = 32) -> dict | None:
+    # Read scale_0/1/2 and opacity from the final PLY and build histograms
+    # for the Reports page. This is how we validate the Shorter-Splatting
+    # paper's claims:
+    # - Scale reset should shift the scale distribution towards smaller
+    #   values, so the histogram should skew left vs. baseline.
+    # - Entropy constraint should push opacities towards 0 or 1 (polarized),
+    #   so the histogram should have spikes at the ends and a sparse middle.
+    # Returns a dict with bin edges + counts, or None if plyfile isn't
+    # available (histograms just don't show up in that case).
+    try:
+        from plyfile import PlyData
+        data = PlyData.read(str(ply_path))
+    except Exception:
+        return None
+    try:
+        import numpy as np
+    except Exception:
+        return None
+
+    verts = data.elements[0]
+    prop_names = {p.name for p in verts.properties}
+
+    # Scale: PLY stores scale_0/1/2 in log-space. Paper reasons about actual
+    # scale, so exp() the mean log-scale per gaussian.
+    # Some aggressive shortgs regimes produce NaN scales for a fraction of
+    # gaussians; we drop those before histogramming so the chart doesn't
+    # just come back empty.
+    scale_hist = None
+    if {"scale_0", "scale_1", "scale_2"}.issubset(prop_names):
+        try:
+            s0 = np.asarray(verts["scale_0"])
+            s1 = np.asarray(verts["scale_1"])
+            s2 = np.asarray(verts["scale_2"])
+            mean_log_scale = (s0 + s1 + s2) / 3.0
+            actual_scale = np.exp(mean_log_scale)
+            finite = actual_scale[np.isfinite(actual_scale)]
+            nan_count = int(len(actual_scale) - len(finite))
+            if len(finite) > 0:
+                # Clip the top tail so the histogram isn't dominated by outliers
+                cap = float(np.percentile(finite, 99.5))
+                clipped = np.clip(finite, 0.0, cap if cap > 0 else 1.0)
+                counts, edges = np.histogram(clipped, bins=bins)
+                scale_hist = {
+                    "bins": edges.tolist(),
+                    "counts": counts.tolist(),
+                    "unit": "mean_scale_exp",
+                    "clipped_at_percentile": 99.5,
+                    "nan_count": nan_count,
+                }
+        except Exception:
+            pass
+
+    # Opacity: PLY stores raw logits. Apply sigmoid to get [0, 1] values,
+    # which is what the entropy constraint polarizes. Drop non-finite values
+    # the same way as for scales.
+    opacity_hist = None
+    if "opacity" in prop_names:
+        try:
+            raw = np.asarray(verts["opacity"])
+            finite_mask = np.isfinite(raw)
+            nan_count = int((~finite_mask).sum())
+            raw_finite = raw[finite_mask]
+            if len(raw_finite) > 0:
+                sig = 1.0 / (1.0 + np.exp(-raw_finite))
+                counts, edges = np.histogram(sig, bins=bins, range=(0.0, 1.0))
+                opacity_hist = {
+                    "bins": edges.tolist(),
+                    "counts": counts.tolist(),
+                    "unit": "sigmoid_opacity",
+                    "nan_count": nan_count,
+                }
+        except Exception:
+            pass
+
+    return {
+        "scale": scale_hist,
+        "opacity": opacity_hist,
+    }
+
+
 def collect_fastergs(
     run_dir: Path,
     log_text: str,
     start_wall: float | None,
 ) -> tuple[list[dict], dict]:
-    # Returns (per-checkpoint records, per-checkpoint wall-time map keyed by
-    # iteration). Wall time at a checkpoint is approximated from the ply mtime
-    # (good enough for a rough "how long did we take to reach iter N" chart).
-    progress = parse_progress_log(log_text)
+    # Parse every progress + eval line into a single iteration-indexed map,
+    # then merge in per-checkpoint gaussian counts + wall times + SSIM/LPIPS.
+    # This gives us a dense loss curve starting near iter 0, with sparse
+    # PSNR/SSIM/LPIPS spikes at eval iterations, and gaussian-count samples
+    # at save-checkpoint iterations.
+    progress_records = parse_progress_log(log_text)
 
-    records: list[dict] = []
+    # Start from the progress-log records (dense iteration grid with loss
+    # + any PSNR from eval lines) and layer checkpoint data on top.
+    by_iter: dict[int, dict] = {
+        r["iteration"]: {
+            "iteration": r["iteration"],
+            "loss": r.get("loss"),
+            "psnr": r.get("psnr"),
+            "ssim": r.get("ssim"),
+            "lpips": r.get("lpips"),
+            "num_gaussians": None,
+            "splats_per_frame": None,
+            "wall_seconds": None,
+        }
+        for r in progress_records
+    }
+
     checkpoints = find_checkpoint_iterations(run_dir)
-    progress_by_iter = {r["iteration"]: r for r in progress}
+    latest_ply_path: Path | None = None
 
-    # A "checkpoint" is an iteration where the trainer saved a PLY. If we have
-    # no checkpoints (dry run, training crashed early) fall back to the last
-    # progress line so we still emit something.
-    iter_list = checkpoints if checkpoints else ([progress[-1]["iteration"]] if progress else [])
-
-    for iteration in iter_list:
-        record: dict = {
+    for iteration in checkpoints:
+        rec = by_iter.get(iteration) or {
             "iteration": iteration,
             "loss": None,
             "psnr": None,
@@ -281,54 +414,62 @@ def collect_fastergs(
             "wall_seconds": None,
         }
 
-        # Pull loss/PSNR from the nearest earlier progress line if there's no
-        # exact match (eval runs on multiples of 1000, progress prints on
-        # multiples of 10, so exact match is common but not guaranteed).
-        if iteration in progress_by_iter:
-            src = progress_by_iter[iteration]
-        else:
-            earlier = [r for r in progress if r["iteration"] <= iteration]
-            src = earlier[-1] if earlier else None
-        if src:
-            record["loss"] = src.get("loss")
-            record["psnr"] = src.get("psnr")
-
-        # Gaussian count: count vertices in the saved PLY.
         ply_path = run_dir / "point_cloud" / f"iteration_{iteration}" / "point_cloud.ply"
         if ply_path.is_file():
+            latest_ply_path = ply_path
             g = count_ply_gaussians(ply_path)
-            record["num_gaussians"] = g
-            # During training every active gaussian gets rasterized per frame,
-            # so splats_per_frame ~= num_gaussians. True per-frame counts would
-            # need hooking into the rasterizer, which we skip for now.
-            record["splats_per_frame"] = g
+            rec["num_gaussians"] = g
+            # True per-frame splat counts would need a rasterizer hook we
+            # don't have yet; every active gaussian is processed per frame
+            # during training, so this is a reasonable proxy.
+            rec["splats_per_frame"] = g
 
             if start_wall is not None:
                 try:
-                    record["wall_seconds"] = max(0.0, ply_path.stat().st_mtime - start_wall)
+                    rec["wall_seconds"] = max(0.0, ply_path.stat().st_mtime - start_wall)
                 except Exception:
                     pass
 
-        # SSIM/LPIPS: only if the trainer emitted eval images for this iter.
+        # SSIM/LPIPS: only computable if eval images exist on disk.
         renders_dir, gt_dir = find_eval_dirs(run_dir, iteration)
         ssim_val, lpips_val = compute_image_metrics(renders_dir, gt_dir)
-        record["ssim"] = ssim_val
-        record["lpips"] = lpips_val
+        if ssim_val is not None:
+            rec["ssim"] = ssim_val
+        if lpips_val is not None:
+            rec["lpips"] = lpips_val
 
-        records.append(record)
+        by_iter[iteration] = rec
+
+    records = [by_iter[k] for k in sorted(by_iter.keys())]
 
     summary_extras = {}
     if records:
-        last = records[-1]
+        # "Final" means the last record that actually carries each metric -
+        # PSNR usually comes from the final eval line, gaussians from the
+        # last checkpoint. Neither is guaranteed to be the literal last row.
+        def _last_non_null(key):
+            for r in reversed(records):
+                if r.get(key) is not None:
+                    return r[key]
+            return None
+
         summary_extras = {
-            "final_psnr": last.get("psnr"),
-            "final_ssim": last.get("ssim"),
-            "final_lpips": last.get("lpips"),
-            "final_num_gaussians": last.get("num_gaussians"),
-            "final_splats_per_frame": last.get("splats_per_frame"),
-            "final_loss": last.get("loss"),
-            "total_wall_seconds": last.get("wall_seconds"),
+            "final_psnr": _last_non_null("psnr"),
+            "final_ssim": _last_non_null("ssim"),
+            "final_lpips": _last_non_null("lpips"),
+            "final_num_gaussians": _last_non_null("num_gaussians"),
+            "final_splats_per_frame": _last_non_null("splats_per_frame"),
+            "final_loss": _last_non_null("loss"),
+            "total_wall_seconds": _last_non_null("wall_seconds"),
         }
+
+    # Histograms from the newest checkpoint PLY. Used by the Reports page to
+    # validate Shorter-Splatting's claims about scale + opacity distributions.
+    if latest_ply_path is not None:
+        hists = compute_ply_histograms(latest_ply_path)
+        if hists:
+            summary_extras["histograms"] = hists
+
     return records, summary_extras
 
 
@@ -436,4 +577,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Single-line error so the SLURM log doesn't drown in tracebacks if
+    # some unexpected trainer output trips the parser. Callers treat
+    # non-zero exit as "no metrics for this run" and keep going.
+    try:
+        main()
+    except Exception as exc:
+        print(f"[metrics_collector] error: {exc}", file=sys.stderr)
+        sys.exit(1)

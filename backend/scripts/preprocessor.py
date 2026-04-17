@@ -34,6 +34,7 @@ def preprocessor(
     blur_threshold=50,
     *,
     max_output_width=1280,
+    downscale=1.0,
     write_scores_csv=True,
     scores_csv_path=None,
 ):
@@ -41,9 +42,16 @@ def preprocessor(
     Preprocess extracted frames and return a stats dict.
 
     Steps per frame:
-    - optional resize to max_output_width
+    - optional downscale by `downscale` factor
+    - optional resize capped at max_output_width
     - blur filtering using Laplacian variance
     - duplicate filtering using MAD to previous kept frame
+
+    `downscale` lets callers re-run preprocessing on already-extracted
+    raw frames (existing-dataset mode in LiveDemos). In the normal
+    video path, the frames arrive pre-scaled by video_slicer and this
+    preprocessor is called with downscale=1.0 so the factor isn't
+    applied twice.
     """
     if duplicate_threshold < 0:
         raise ValueError("duplicate_threshold must be >= 0")
@@ -51,6 +59,8 @@ def preprocessor(
         raise ValueError("blur_threshold must be >= 0")
     if max_output_width < 320:
         raise ValueError("max_output_width must be >= 320")
+    if downscale <= 0 or downscale > 1:
+        raise ValueError("downscale must be in (0, 1]")
 
     path = Path(raw_images)
     if not path.exists() or not path.is_dir():
@@ -124,10 +134,21 @@ def preprocessor(
             resized_width = width
             resized_height = height
 
-            if width > max_output_width:
-                scale = max_output_width / width
-                resized_height = int(height * scale)
-                resized_width = max_output_width
+            # Combined scale: shrink by `downscale` factor first (used in
+            # existing-frames mode to apply a user-selected downscale on
+            # already-extracted raw frames), then cap the result at
+            # max_output_width. Both steps are resolution-reducing, so
+            # we only resize if the final target is smaller than the
+            # source.
+            target_width = width
+            if downscale < 1.0:
+                target_width = max(1, int(round(width * downscale)))
+            if target_width > max_output_width:
+                target_width = max_output_width
+            if target_width < width:
+                scale = target_width / width
+                resized_height = max(1, int(round(height * scale)))
+                resized_width = target_width
                 resized_image = cv2.resize(image, (resized_width, resized_height), interpolation=cv2.INTER_AREA)
                 resized_count += 1
 

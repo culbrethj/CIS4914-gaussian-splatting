@@ -1,6 +1,17 @@
+"""
+HPG-to-HPG rsync helper: pulls a dataset's cleaned images into the
+``gs_final`` workspace layout.
+
+Not part of the normal web pipeline (uploads from local go through the
+rsync call inside ``fastergs_pipeline.py``). Useful when seeding
+``gs_final/datasets/<ds>/images`` from another location that already lives
+on ``/blue`` - avoids shipping the frames down and back up.
+"""
+
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
 import subprocess
 import sys
@@ -11,8 +22,13 @@ from datetime import datetime
 # when you already uploaded images via some other path and just want to seed
 # gs_final from them. For the main web flow the upload happens inside
 # fastergs_pipeline.py via rsync over SSH.
-DEFAULT_REMOTE_ROOT = "/blue/cis4914/joshuabowman/gs_final"
-DEFAULT_SOURCE_DATASETS_ROOT = "/blue/cis4914/joshuabowman/gaussian-splatting/experiments/faster-gs/datasets"
+# HPG workspace defaults. FASTERGS_REMOTE_ROOT overrides the gs_final root;
+# FASTERGS_SOURCE_DATASETS overrides the read-side path we rsync from.
+DEFAULT_REMOTE_ROOT = os.environ.get("FASTERGS_REMOTE_ROOT", "/blue/cis4914/joshuabowman/gs_final")
+DEFAULT_SOURCE_DATASETS_ROOT = os.environ.get(
+    "FASTERGS_SOURCE_DATASETS",
+    "/blue/cis4914/joshuabowman/gaussian-splatting/experiments/faster-gs/datasets",
+)
 
 
 def log(message: str):

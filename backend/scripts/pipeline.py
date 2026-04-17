@@ -15,10 +15,24 @@ try:
     from .converter import ply_to_splat
     from .frame_slicer import video_slicer
     from .preprocessor import preprocessor
+    from .prep_fingerprint import (
+        build_fingerprint,
+        diff_fingerprints,
+        fingerprints_match,
+        load_fingerprint,
+        save_fingerprint,
+    )
 except ImportError:
     from converter import ply_to_splat
     from frame_slicer import video_slicer
     from preprocessor import preprocessor
+    from prep_fingerprint import (
+        build_fingerprint,
+        diff_fingerprints,
+        fingerprints_match,
+        load_fingerprint,
+        save_fingerprint,
+    )
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger("gaussian.pipeline")
@@ -129,6 +143,32 @@ def validate_run_args(args):
 
 
 def run_sfm(dataset_path: Path):
+    # Smart SfM Reuse: skip COLMAP if the existing sparse model was built
+    # from the same images currently on disk. We key this off the prep
+    # fingerprint (since those settings determine the input images) plus
+    # the presence of the sparse output.
+    image_dir = dataset_path / "images"
+    image_count = count_images(image_dir)
+    if image_count < MIN_PROCESSED_FRAMES:
+        raise ValueError(
+            f"Not enough processed images for SfM ({image_count} found, need at least {MIN_PROCESSED_FRAMES})"
+        )
+
+    prep_fp_path = dataset_path / "prep_fingerprint.json"
+    sfm_fp_path = dataset_path / "sfm_fingerprint.json"
+    sparse_dir = dataset_path / "sparse"
+    prep_fp = load_fingerprint(prep_fp_path) or {}
+    sfm_fp = load_fingerprint(sfm_fp_path)
+
+    sparse_ok = sparse_dir.is_dir() and any(sparse_dir.iterdir())
+    if sparse_ok and fingerprints_match(sfm_fp, prep_fp):
+        logger.info("SfM cache hit — reusing existing sparse model (preprocess settings match)")
+        return
+    if sparse_ok and sfm_fp:
+        reasons = diff_fingerprints(sfm_fp, prep_fp)
+        for reason in reasons:
+            logger.info("SfM cache invalidated — %s", reason)
+
     try:
         try:
             from .sfm import sfm
@@ -139,14 +179,13 @@ def run_sfm(dataset_path: Path):
             "pycolmap is required for SfM step but is not installed in this environment"
         ) from exc
 
-    image_dir = dataset_path / "images"
-    image_count = count_images(image_dir)
-    if image_count < MIN_PROCESSED_FRAMES:
-        raise ValueError(
-            f"Not enough processed images for SfM ({image_count} found, need at least {MIN_PROCESSED_FRAMES})"
-        )
+    sfm(str(image_dir), str(sparse_dir))
 
-    sfm(str(image_dir), str(dataset_path / "sparse"))
+    # Cache the fingerprint so the next run can skip SfM when preprocessing
+    # settings haven't changed. We copy from the prep fingerprint because
+    # SfM's validity tracks whichever images were last produced.
+    if prep_fp:
+        save_fingerprint(sfm_fp_path, prep_fp)
 
 
 def run_opensplat(dataset_path: Path, num_iters: int):
@@ -250,7 +289,7 @@ def run_opensplat(dataset_path: Path, num_iters: int):
 
 def run_prepare(
     dataset_path: Path,
-    video_path: Path,
+    video_path: Path | None,
     img_format: str,
     duplicate_threshold: float,
     blur_threshold: float,
@@ -258,43 +297,124 @@ def run_prepare(
     downscale: float,
     max_width: int,
     write_scores: bool,
+    *,
+    use_existing_frames: bool = False,
 ):
     raw_path = dataset_path / "raw"
     images_path = dataset_path / "images"
+    fingerprint_path = dataset_path / "prep_fingerprint.json"
 
-    clear_dir(raw_path)
-    clear_dir(images_path)
+    # Existing-frames mode: skip video_slicer and re-run ONLY the
+    # preprocessor on the existing raw/ dir with the current blur / dup /
+    # downscale / max_width settings. FPS isn't meaningful here because
+    # the raw frames are already extracted - we inherit it from the prior
+    # fingerprint (if any) so the fingerprint comparison stays stable and
+    # doesn't needlessly invalidate.
+    prior_fp = load_fingerprint(fingerprint_path)
+    if use_existing_frames:
+        if not raw_path.is_dir() or count_images(raw_path) == 0:
+            # Fallback: no raw/ saved (older dataset). Promote the
+            # existing images/ dir to raw/ so we have a stable source
+            # that survives the clear_dir(images_path) below. Future
+            # existing-frames reruns on this dataset now pick up the
+            # real raw path automatically. If the ultimate fallback
+            # fails, surface a clear error.
+            if not images_path.is_dir() or count_images(images_path) == 0:
+                raise FileNotFoundError(
+                    f"No raw/ or images/ found under {dataset_path}; cannot re-run preprocessing."
+                )
+            logger.warning(
+                "No raw/ frames for %s; promoting existing images/ to raw/ before re-filtering",
+                dataset_path.name,
+            )
+            raw_path.mkdir(parents=True, exist_ok=True)
+            for img in images_path.iterdir():
+                if img.is_file():
+                    img.rename(raw_path / img.name)
+        source_path = raw_path
+        fps_for_fingerprint = (prior_fp or {}).get("fps", fps)
+    else:
+        fps_for_fingerprint = fps
+
+    # Smart SfM Reuse: if the preprocessing settings match the last run AND
+    # the output images dir already has content, skip the expensive slicing
+    # + blur/duplicate filtering step entirely and go straight to SfM.
+    new_fp = build_fingerprint(
+        fps=fps_for_fingerprint, downscale=downscale, blur_threshold=blur_threshold,
+        duplicate_threshold=duplicate_threshold, max_width=max_width,
+    )
+    if (
+        fingerprints_match(prior_fp, new_fp)
+        and images_path.is_dir()
+        and count_images(images_path) >= MIN_PROCESSED_FRAMES
+    ):
+        logger.info(
+            "Preprocessing cache hit — reusing %d images (fps=%s downscale=%s blur=%s duplicate=%s max_width=%s)",
+            count_images(images_path), fps_for_fingerprint, downscale, blur_threshold, duplicate_threshold, max_width,
+        )
+        return
+    # If we have a prior fingerprint but it doesn't match, tell the user
+    # which settings changed so they understand why preprocessing reran.
+    if prior_fp:
+        reasons = diff_fingerprints(prior_fp, new_fp)
+        for reason in reasons:
+            logger.info("Preprocessing cache invalidated — %s", reason)
 
     prepare_start = time.perf_counter()
 
-    logger.info("Starting video slicing")
-    slice_start = time.perf_counter()
-    slice_stats = video_slicer(
-        video_path,
-        raw_path,
-        img_format,
-        fps=fps,
-        downscale=downscale,
-        return_metadata=True,
-    )
-    slicing_elapsed = time.perf_counter() - slice_start
-
-    raw_count = int(slice_stats["saved"])
-    logger.info("Video slicing finished (%s frames in %.2fs)", raw_count, slicing_elapsed)
-
-    if raw_count < MIN_RAW_FRAMES:
-        raise ValueError(
-            f"Too few extracted frames ({raw_count}). Provide a longer/steadier video with more viewpoints."
+    if use_existing_frames:
+        # Preserve raw/, only rebuild images/.
+        raw_count = count_images(source_path)
+        logger.info(
+            "Re-running preprocessing on %d existing frames (blur=%s dup=%s downscale=%s max_width=%s)",
+            raw_count, blur_threshold, duplicate_threshold, downscale, max_width,
         )
+        clear_dir(images_path)
+        slicing_elapsed = 0.0
+        slice_stats = {
+            "saved": raw_count,
+            "source_fps": None,
+            "target_fps": None,
+            "frame_step": None,
+            "downscale": downscale,
+        }
+    else:
+        clear_dir(raw_path)
+        clear_dir(images_path)
+
+        logger.info("Starting video slicing")
+        slice_start = time.perf_counter()
+        slice_stats = video_slicer(
+            video_path,
+            raw_path,
+            img_format,
+            fps=fps,
+            downscale=downscale,
+            return_metadata=True,
+        )
+        slicing_elapsed = time.perf_counter() - slice_start
+        source_path = raw_path
+
+        raw_count = int(slice_stats["saved"])
+        logger.info("Video slicing finished (%s frames in %.2fs)", raw_count, slicing_elapsed)
+
+        if raw_count < MIN_RAW_FRAMES:
+            raise ValueError(
+                f"Too few extracted frames ({raw_count}). Provide a longer/steadier video with more viewpoints."
+            )
 
     logger.info("Starting preprocessing")
     prep_start = time.perf_counter()
     prep_stats = preprocessor(
-        raw_path,
+        source_path,
         images_path,
         duplicate_threshold=duplicate_threshold,
         blur_threshold=blur_threshold,
         max_output_width=max_width,
+        # Only apply downscale in existing-frames mode. In the normal
+        # video path, video_slicer has already downscaled during
+        # extraction, so passing it again here would compound.
+        downscale=downscale if use_existing_frames else 1.0,
         write_scores_csv=write_scores,
         scores_csv_path=dataset_path / "preprocess_scores.csv",
     )
@@ -316,7 +436,8 @@ def run_prepare(
         "created_at": _utcnow_iso(),
         "dataset": dataset_path.name,
         "video": {
-            "input_path": str(video_path),
+            "input_path": str(video_path) if video_path is not None else None,
+            "reused_existing_frames": use_existing_frames,
             "source_fps": slice_stats.get("source_fps"),
             "target_fps": slice_stats.get("target_fps"),
             "frame_step": slice_stats.get("frame_step"),
@@ -364,6 +485,10 @@ def run_prepare(
             "Lower thresholds or use a clearer video with more camera movement."
         )
 
+    # Cache the successful fingerprint so future runs with the same
+    # preprocessing settings can skip this whole function.
+    save_fingerprint(fingerprint_path, new_fp)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Orchestrate SfM and Gaussian Splatting")
@@ -383,6 +508,15 @@ def main():
         default="all",
         help="Which step to run (default: all)",
     )
+    # When set, skip the prepare stage even under --only all/prepare.
+    # Pairs with the LiveDemos "Existing dataset" flow where we want to
+    # rerun SfM / training with different settings but keep the already-
+    # extracted frames as-is.
+    parser.add_argument(
+        "--use-existing-frames",
+        action="store_true",
+        help="Skip frame extraction and reuse the existing dataset images/ dir.",
+    )
     args = parser.parse_args()
 
     validate_run_args(args)
@@ -392,23 +526,41 @@ def main():
 
     try:
         if args.only in ("prepare", "all"):
-            if not args.video:
-                raise ValueError("--video is required when running prepare/all")
-            video_path = Path(args.video).resolve()
-            if not video_path.exists():
-                raise FileNotFoundError(f"Video not found: {video_path}")
+            if args.use_existing_frames:
+                # Existing-dataset flow. Skip video_slicer entirely but
+                # still re-run the preprocessor on raw/ so the user can
+                # change blur / dup / downscale / max_width without
+                # re-uploading a video.
+                run_prepare(
+                    dataset_path,
+                    None,
+                    args.img_format,
+                    duplicate_threshold=args.duplicate_threshold,
+                    blur_threshold=args.blur_threshold,
+                    fps=args.fps,
+                    downscale=args.downscale,
+                    max_width=args.max_width,
+                    write_scores=not args.no_scores,
+                    use_existing_frames=True,
+                )
+            else:
+                if not args.video:
+                    raise ValueError("--video is required when running prepare/all")
+                video_path = Path(args.video).resolve()
+                if not video_path.exists():
+                    raise FileNotFoundError(f"Video not found: {video_path}")
 
-            run_prepare(
-                dataset_path,
-                video_path,
-                args.img_format,
-                duplicate_threshold=args.duplicate_threshold,
-                blur_threshold=args.blur_threshold,
-                fps=args.fps,
-                downscale=args.downscale,
-                max_width=args.max_width,
-                write_scores=not args.no_scores,
-            )
+                run_prepare(
+                    dataset_path,
+                    video_path,
+                    args.img_format,
+                    duplicate_threshold=args.duplicate_threshold,
+                    blur_threshold=args.blur_threshold,
+                    fps=args.fps,
+                    downscale=args.downscale,
+                    max_width=args.max_width,
+                    write_scores=not args.no_scores,
+                )
 
         if args.only in ("sfm", "all"):
             logger.info("Starting SfM step")

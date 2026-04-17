@@ -1,7 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
+  Bar,
+  BarChart,
   CartesianGrid,
+  Cell,
   Legend,
   Line,
   LineChart,
@@ -10,16 +13,25 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import RunDetailsCard from "../components/RunDetailsCard";
+import { formatRunDisplay, parseRunTag, computeRunNumberMap } from "../utils/runDisplay";
 import "./Reports.css";
 
 // The Reports page lets you pick a dataset, pick one or more training runs,
-// and look at how metrics changed over iterations. Two view modes:
+// and look at how metrics changed over training. Two view modes:
 //   - "stacked"  = one row of small charts per selected run
 //   - "overlay"  = one chart per metric, with every selected run drawn on top
 // Everything here tolerates missing data. If the backend returns no runs for
 // the dataset, we show an empty state. If a specific metric is null for
 // every selected run, we hide that chart to avoid empty-looking panels.
+//
+// The "iteration" charts use the dense loss/PSNR records from the jsonl.
+// The "wall time" chart replots PSNR with wall_seconds on the x axis so you
+// can eyeball actual speedup (the Shorter-Splatting paper's core claim).
+// The histogram charts come from the summary JSON, not the jsonl - they're
+// a single snapshot of the final model's scale + opacity distribution.
 
+// Charts where x = iteration.
 const METRIC_DEFS = [
   { key: "psnr", label: "PSNR (dB)" },
   { key: "ssim", label: "SSIM" },
@@ -30,8 +42,47 @@ const METRIC_DEFS = [
   { key: "wall_seconds", label: "Wall Time (s)" },
 ];
 
-// Recharts color palette. Four colors is plenty since we cap overlay at 4 runs.
-const RUN_COLORS = ["#0f6bd8", "#c53535", "#0f8f5f", "#a56800"];
+// Six distinguishable colors. Picked so no two look alike at a glance under
+// normal or red/green-colorblind viewing. Cap overlay at 6 runs.
+const RUN_COLORS = [
+  "#0f6bd8", // blue
+  "#c53535", // red
+  "#0f8f5f", // green
+  "#a56800", // amber
+  "#7e41b8", // purple
+  "#19858a", // teal
+];
+const BASELINE_COLOR = "#0f6bd8"; // blue
+const SHORTGS_COLOR = "#c53535"; // red
+const MAX_OVERLAY_RUNS = RUN_COLORS.length;
+
+// Resolves a run's display color. Baselines are always blue, shortgs runs
+// are always red. Beyond one of each we fall through to the palette so a
+// user comparing 3+ runs still gets distinct colors. We look at both the
+// summary (authoritative) and the tag (fallback for pre-rename runs).
+function colorForRun(runTag, summary, occurrences) {
+  const isShortgs = (summary?.shortgs?.scale_reset_every > 0)
+    || (summary?.shortgs?.entropy_weight > 0)
+    || !!summary?.shortgs?.progressive_resolution
+    || runTag.includes("shortgs");
+  const isBaseline = !isShortgs;
+  // occurrences maps a canonical color to how many runs already used it.
+  // First baseline gets blue, first shortgs gets red, overflow gets the
+  // palette (skipping blue + red).
+  if (isBaseline && !occurrences.baseline) {
+    occurrences.baseline = 1;
+    return BASELINE_COLOR;
+  }
+  if (isShortgs && !occurrences.shortgs) {
+    occurrences.shortgs = 1;
+    return SHORTGS_COLOR;
+  }
+  // Fallback: skip blue+red so the same run type doesn't get a confusing
+  // near-match color for a sibling.
+  const fallback = RUN_COLORS.filter((c) => c !== BASELINE_COLOR && c !== SHORTGS_COLOR);
+  const idx = (occurrences.fallback = (occurrences.fallback || 0) + 1) - 1;
+  return fallback[idx % fallback.length];
+}
 
 async function fetchJson(url) {
   const response = await fetch(url);
@@ -49,6 +100,116 @@ function formatNumber(value, digits = 3) {
     return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
   }
   return n.toFixed(digits);
+}
+
+// Shortened axis tick formatter. Raw bin midpoints like 0.048191592288203536
+// steal all the space; 3 decimals is plenty for histogram reading.
+function formatAxisTick(value) {
+  if (value === null || value === undefined) return "";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "";
+  if (Math.abs(n) >= 1000) {
+    return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  }
+  if (Math.abs(n) >= 10) return n.toFixed(1);
+  return n.toFixed(3);
+}
+
+// Display name for a run (see utils/runDisplay.js for the single source of
+// truth). Kept as a thin alias so the hundreds of call sites below don't
+// have to be rewritten.
+function shortLabelForTag(tag) {
+  return formatRunDisplay(tag);
+}
+
+// Per-metric value formatter used inside the chart tooltip. The metric
+// key comes from the chart name (psnr/ssim/lpips/loss/...) so we can
+// render each value in the unit users expect without every call site
+// duplicating the same if/else ladder.
+function formatMetricValue(metricKey, value) {
+  if (value === null || value === undefined) return "-";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "-";
+  switch (metricKey) {
+    case "psnr":
+      return `${n.toFixed(2)} dB`;
+    case "ssim":
+    case "lpips":
+      return n.toFixed(3);
+    case "loss":
+      // Loss values live in the 0.001–0.3 range; 4 decimals lets users
+      // see small changes in the tail of training without the number
+      // collapsing to "0.00".
+      return n.toFixed(4);
+    case "num_gaussians":
+    case "splats_per_frame":
+      return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    case "wall_seconds": {
+      const secs = Math.round(n);
+      if (secs < 60) return `${secs}s`;
+      const m = Math.floor(secs / 60);
+      const s = secs % 60;
+      return s === 0 ? `${m}m` : `${m}m ${s}s`;
+    }
+    default:
+      // Plain numeric fallback: commas for big, 3 decimals for small.
+      if (Math.abs(n) >= 1000) {
+        return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+      }
+      return n.toFixed(3);
+  }
+}
+
+// Custom styled tooltip card for the line charts. Recharts' default
+// tooltip is text-heavy and doesn't let us format per-metric values
+// (commas for counts, "dB" for PSNR, "2m 3s" for wall time). We
+// replicate the layout as a white card with a bold header (iteration
+// or wall time) and one row per run with its color swatch + name +
+// formatted value.
+function ChartTooltip({ active, payload, label, metricKey, labelKey = "iteration", labelFormatter }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const headerLabel = (() => {
+    if (labelFormatter) return labelFormatter(label);
+    if (labelKey === "iteration") return `Iteration ${formatMetricValue("num_gaussians", label)}`;
+    if (labelKey === "wall_seconds") return `Wall ${formatMetricValue("wall_seconds", label)}`;
+    return String(label ?? "");
+  })();
+  return (
+    <div className="chart-tooltip-card">
+      <div className="chart-tooltip-head">{headerLabel}</div>
+      <div className="chart-tooltip-rows">
+        {payload.map((p) => (
+          <div key={p.dataKey || p.name} className="chart-tooltip-row">
+            <span className="chart-tooltip-dot" style={{ background: p.color || p.stroke || p.fill }} />
+            <span className="chart-tooltip-name" title={p.name}>{p.name}</span>
+            <span className="chart-tooltip-value">{formatMetricValue(metricKey, p.value)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Histogram bars use a single-series tooltip with the bin range in the
+// header and the count below. Split out from ChartTooltip so the bin
+// range (from payload[0].payload.range) can drive the header without
+// juggling labelFormatter/labelKey conventions.
+function HistogramTooltip({ active, payload }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const p = payload[0];
+  const range = p?.payload?.range || "";
+  return (
+    <div className="chart-tooltip-card">
+      <div className="chart-tooltip-head">{range}</div>
+      <div className="chart-tooltip-rows">
+        <div className="chart-tooltip-row">
+          <span className="chart-tooltip-dot" style={{ background: p.color || p.fill }} />
+          <span className="chart-tooltip-name">Count</span>
+          <span className="chart-tooltip-value">{formatMetricValue("num_gaussians", p.value)}</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function Reports() {
@@ -166,9 +327,9 @@ export default function Reports() {
   const toggleRun = useCallback((tag) => {
     setSelectedRunTags((prev) => {
       if (prev.includes(tag)) return prev.filter((t) => t !== tag);
-      // Cap at 4 runs when comparing - more than that makes every chart a
-      // tangled mess and we only have 4 colors anyway.
-      if (prev.length >= 4) return [...prev.slice(1), tag];
+      // Cap at MAX_OVERLAY_RUNS so every run has a distinct color. Exceeding
+      // the cap just drops the oldest selection.
+      if (prev.length >= MAX_OVERLAY_RUNS) return [...prev.slice(1), tag];
       return [...prev, tag];
     });
   }, []);
@@ -216,6 +377,77 @@ export default function Reports() {
     });
   }, [overlayDataByMetric, selectedRunTags]);
 
+  // PSNR vs wall-time chart data. For each selected run we zip the series'
+  // wall_seconds + psnr into (x, y) points. This is the Shorter-Splatting
+  // paper's headline comparison - speedup at constant quality shows up as
+  // two curves reaching the same PSNR but the faster one using less wall time.
+  const psnrVsTimeByRun = useMemo(() => {
+    const out = {};
+    for (const tag of selectedRunTags) {
+      const series = seriesByRun[tag]?.records || [];
+      const pts = [];
+      for (const rec of series) {
+        const t = rec.wall_seconds;
+        const p = rec.psnr;
+        if (t == null || p == null) continue;
+        pts.push({ wall_seconds: Number(t), psnr: Number(p) });
+      }
+      pts.sort((a, b) => a.wall_seconds - b.wall_seconds);
+      out[tag] = pts;
+    }
+    return out;
+  }, [selectedRunTags, seriesByRun]);
+  const anyWallTimeData = useMemo(
+    () => Object.values(psnrVsTimeByRun).some((arr) => arr.length > 0),
+    [psnrVsTimeByRun]
+  );
+
+  // Histogram data for scale + opacity distributions (from the run summary).
+  // Rendering: one bar chart per run per histogram kind, where the bars
+  // show count per bin. We don't overlay histograms on the same chart
+  // because the bin edges typically differ run-to-run.
+  const histogramsByRun = useMemo(() => {
+    const out = {};
+    const summaryByTag = Object.fromEntries(runs.map((r) => [r.run_tag, r.summary || {}]));
+    for (const tag of selectedRunTags) {
+      out[tag] = (summaryByTag[tag] || {}).histograms || null;
+    }
+    return out;
+  }, [runs, selectedRunTags]);
+  const anyScaleHist = useMemo(
+    () => Object.values(histogramsByRun).some((h) => h && h.scale && h.scale.counts?.length),
+    [histogramsByRun]
+  );
+  const anyOpacityHist = useMemo(
+    () => Object.values(histogramsByRun).some((h) => h && h.opacity && h.opacity.counts?.length),
+    [histogramsByRun]
+  );
+
+  // Deterministic color assignment per run tag. Baseline runs land on blue,
+  // shortgs runs on red; anything beyond one of each gets a fallback palette
+  // color. Recomputed whenever the selection or the run summaries change.
+  const colorByRunTag = useMemo(() => {
+    const summaryByTag = Object.fromEntries(runs.map((r) => [r.run_tag, r.summary || {}]));
+    const occurrences = {};
+    const out = {};
+    for (const tag of selectedRunTags) {
+      out[tag] = colorForRun(tag, summaryByTag[tag], occurrences);
+    }
+    return out;
+  }, [selectedRunTags, runs]);
+
+  // Per-dataset run numbering: "Run 1" is the earliest run for this dataset.
+  // We only ever look at one dataset at a time on this page, so a single
+  // ascending sort is enough. computeRunNumberMap returns {tag -> N}.
+  const runNumberByTag = useMemo(() => {
+    const ascending = [...runs]
+      .map((r) => ({ tag: r.run_tag, when: parseRunTag(r.run_tag).datetime }))
+      .filter((x) => x.when instanceof Date && !Number.isNaN(x.when.getTime()))
+      .sort((a, b) => a.when - b.when)
+      .map((x) => x.tag);
+    return computeRunNumberMap(ascending);
+  }, [runs]);
+
   const hasRunsSelected = selectedRunTags.length > 0;
 
   return (
@@ -226,7 +458,6 @@ export default function Reports() {
           Pick a dataset and one or more training runs to compare PSNR, SSIM, LPIPS,
           loss, gaussian count, splats-per-frame, and wall time.
         </p>
-        <Link className="back-link" to="/">Back</Link>
       </div>
 
       <div className="reports-controls">
@@ -270,55 +501,17 @@ export default function Reports() {
               )}
               {!runsLoading && !runsError && runs.length > 0 && (
                 <div className="run-list">
-                  {runs.map((run, idx) => {
-                    const tag = run.run_tag;
-                    const selected = selectedRunTags.includes(tag);
-                    const s = run.summary || {};
-                    const color = selected ? RUN_COLORS[selectedRunTags.indexOf(tag) % RUN_COLORS.length] : "transparent";
-                    return (
-                      <label key={tag || idx} className={`run-card${selected ? " selected" : ""}`}>
-                        <div style={{ display: "flex", alignItems: "center" }}>
-                          <input
-                            type="checkbox"
-                            checked={selected}
-                            onChange={() => toggleRun(tag)}
-                          />
-                          <span
-                            aria-hidden
-                            style={{
-                              display: "inline-block",
-                              width: 10,
-                              height: 10,
-                              borderRadius: "50%",
-                              background: color,
-                              marginRight: 8,
-                              border: selected ? "none" : "1px solid var(--line)",
-                            }}
-                          />
-                          <span className="run-tag">{tag}</span>
-                        </div>
-                        <div className="run-meta">
-                          {s.backend && <span>backend: {s.backend}</span>}
-                          {s.iterations != null && <span>iters: {s.iterations}</span>}
-                          {s.final_psnr != null && <span>PSNR: {formatNumber(s.final_psnr, 2)}</span>}
-                          {s.final_num_gaussians != null && (
-                            <span>gaussians: {formatNumber(s.final_num_gaussians, 0)}</span>
-                          )}
-                          {s.total_wall_seconds != null && (
-                            <span>wall: {formatNumber(s.total_wall_seconds, 0)}s</span>
-                          )}
-                        </div>
-                        <div className="run-actions">
-                          <a
-                            href={`/api/datasets/${encodeURIComponent(selectedDataset)}/metrics/${encodeURIComponent(tag)}/download`}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            Download zip
-                          </a>
-                        </div>
-                      </label>
-                    );
-                  })}
+                  {runs.map((run, idx) => (
+                    <RunPickerCard
+                      key={run.run_tag || idx}
+                      run={run}
+                      dataset={selectedDataset}
+                      selected={selectedRunTags.includes(run.run_tag)}
+                      color={colorByRunTag[run.run_tag] || null}
+                      runNumber={runNumberByTag[run.run_tag]}
+                      onToggle={() => toggleRun(run.run_tag)}
+                    />
+                  ))}
                 </div>
               )}
             </div>
@@ -350,21 +543,54 @@ export default function Reports() {
 
       {hasRunsSelected && (
         <>
-          <SummaryTable runs={runs.filter((r) => selectedRunTags.includes(r.run_tag))} />
+          <SummaryTable
+            runs={runs.filter((r) => selectedRunTags.includes(r.run_tag))}
+            runNumberByTag={runNumberByTag}
+          />
 
           {mode === "overlay" ? (
             <OverlayCharts
               metrics={visibleMetrics}
               runTags={selectedRunTags}
               dataByMetric={overlayDataByMetric}
+              colorByRunTag={colorByRunTag}
+              runNumberByTag={runNumberByTag}
             />
           ) : (
             <StackedCharts
               metrics={visibleMetrics}
               runTags={selectedRunTags}
               seriesByRun={seriesByRun}
+              colorByRunTag={colorByRunTag}
+              runNumberByTag={runNumberByTag}
             />
           )}
+
+          {anyWallTimeData && (
+            <PsnrVsWallTimeChart
+              runTags={selectedRunTags}
+              pointsByRun={psnrVsTimeByRun}
+              colorByRunTag={colorByRunTag}
+              runNumberByTag={runNumberByTag}
+            />
+          )}
+
+          {(anyScaleHist || anyOpacityHist) && (
+            <HistogramCharts
+              runTags={selectedRunTags}
+              histogramsByRun={histogramsByRun}
+              showScale={anyScaleHist}
+              showOpacity={anyOpacityHist}
+              colorByRunTag={colorByRunTag}
+              runNumberByTag={runNumberByTag}
+            />
+          )}
+
+          {/* Paper validation placeholder - shown only while the rasterizer
+              hook isn't wired up yet. Once we can read per-pixel alpha lists
+              from the custom CUDA backend, this turns into a real histogram
+              the same way scale + opacity do. */}
+          <GaussianListPlaceholder />
         </>
       )}
 
@@ -375,7 +601,116 @@ export default function Reports() {
   );
 }
 
-function SummaryTable({ runs }) {
+// One card in the run picker grid. Shows the scannable "dataset - Run N"
+// label + a compact stats strip. Reveals the full RunDetailsCard on hover.
+// The popover is rendered through a portal attached to document.body so it
+// escapes the scrolling run-list container's overflow clipping.
+function RunPickerCard({ run, dataset, selected, color, runNumber, onToggle }) {
+  const [hoverOpen, setHoverOpen] = useState(false);
+  const [popoverPos, setPopoverPos] = useState(null);
+  const cardRef = useRef(null);
+  const tag = run.run_tag;
+  const s = run.summary || {};
+  const displayName = formatRunDisplay(tag, runNumber);
+
+  // Position the portal popover relative to the card. Prefer placing it
+  // to the right, fall back to left, fall back to below, so the card is
+  // always visible regardless of where the card sits on screen.
+  const onEnter = () => {
+    const card = cardRef.current;
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    const popWidth = 320; // matches .run-details-card--popover
+    const popEstHeight = 380;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    let left = rect.right + 10;
+    let top = rect.top;
+    if (left + popWidth > vw - 12) {
+      // not enough room on the right, try left
+      left = rect.left - popWidth - 10;
+      if (left < 12) {
+        // fall back to below the card
+        left = Math.max(12, Math.min(rect.left, vw - popWidth - 12));
+        top = rect.bottom + 8;
+      }
+    }
+    // clamp vertically so tall cards don't overflow the viewport
+    top = Math.max(12, Math.min(top, vh - popEstHeight - 12));
+    setPopoverPos({ top, left });
+    setHoverOpen(true);
+  };
+  const onLeave = () => setHoverOpen(false);
+
+  return (
+    <label
+      ref={cardRef}
+      className={`run-card${selected ? " selected" : ""}`}
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+    >
+      <div className="run-card-head">
+        <input type="checkbox" checked={selected} onChange={onToggle} />
+        <span
+          aria-hidden
+          className="run-card-swatch"
+          style={{
+            background: selected ? (color || "transparent") : "transparent",
+            borderColor: selected && color ? color : "var(--line)",
+          }}
+        />
+        <span className="run-tag">{displayName}</span>
+      </div>
+      <div className="run-meta">
+        {s.final_psnr != null && (
+          <span className="run-meta-item">
+            <span className="run-meta-key">PSNR</span>
+            <span className="run-meta-val">{formatNumber(s.final_psnr, 2)}</span>
+          </span>
+        )}
+        {s.total_wall_seconds != null && (
+          <span className="run-meta-item">
+            <span className="run-meta-key">Wall</span>
+            <span className="run-meta-val">{formatNumber(s.total_wall_seconds, 0)}s</span>
+          </span>
+        )}
+        {s.final_num_gaussians != null && (
+          <span className="run-meta-item">
+            <span className="run-meta-key">Gauss</span>
+            <span className="run-meta-val">{formatNumber(s.final_num_gaussians, 0)}</span>
+          </span>
+        )}
+        {s.iterations != null && (
+          <span className="run-meta-item">
+            <span className="run-meta-key">Iter</span>
+            <span className="run-meta-val">{s.iterations}</span>
+          </span>
+        )}
+      </div>
+      <div className="run-actions">
+        <a
+          href={`/api/datasets/${encodeURIComponent(dataset)}/metrics/${encodeURIComponent(tag)}/download`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          Download zip
+        </a>
+      </div>
+      {hoverOpen && popoverPos && createPortal(
+        <div
+          className="run-card-popover run-card-popover--portal"
+          role="tooltip"
+          style={{ top: popoverPos.top, left: popoverPos.left }}
+        >
+          <RunDetailsCard summary={s} runTag={tag} runNumber={runNumber} variant="popover" />
+        </div>,
+        document.body,
+      )}
+    </label>
+  );
+}
+
+function SummaryTable({ runs, runNumberByTag }) {
   if (!runs.length) return null;
   return (
     <table className="summary-table">
@@ -383,10 +718,10 @@ function SummaryTable({ runs }) {
         <tr>
           <th>Run</th>
           <th>Backend</th>
-          <th>Iterations</th>
-          <th>Final PSNR</th>
-          <th>Final SSIM</th>
-          <th>Final LPIPS</th>
+          <th>Iters</th>
+          <th>PSNR</th>
+          <th>SSIM</th>
+          <th>LPIPS</th>
           <th>Gaussians</th>
           <th>Wall (s)</th>
         </tr>
@@ -396,7 +731,9 @@ function SummaryTable({ runs }) {
           const s = run.summary || {};
           return (
             <tr key={run.run_tag}>
-              <td>{run.run_tag}</td>
+              <td className="run-cell" title={run.run_tag}>
+                {shortLabelForTag(run.run_tag, (runNumberByTag || {})[run.run_tag])}
+              </td>
               <td>{s.backend || "-"}</td>
               <td>{s.iterations ?? "-"}</td>
               <td>{formatNumber(s.final_psnr, 2)}</td>
@@ -412,56 +749,311 @@ function SummaryTable({ runs }) {
   );
 }
 
-function OverlayCharts({ metrics, runTags, dataByMetric }) {
+function OverlayCharts({ metrics, runTags, dataByMetric, colorByRunTag, runNumberByTag }) {
+  // Loss is noisy (opacity-reset spikes at multiples of ~3000 iters stretch
+  // the axis). Give just the loss chart a log-scale toggle so the reader
+  // can see the descent without the spikes dominating.
+  // Hook must be called unconditionally, before any early return.
+  const [lossLog, setLossLog] = useState(false);
   if (!metrics.length) {
     return <div className="reports-empty">No metric data recorded for the selected runs.</div>;
   }
   return (
     <div className="charts-grid">
       <div className="charts-row">
-        {metrics.map(({ key, label }) => (
-          <div key={key} className="chart-card">
-            <h4>{label}</h4>
-            <div className="chart-sub">{runTags.length} run(s) overlaid</div>
-            <div className="chart-wrap">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={dataByMetric[key]} margin={{ top: 4, right: 16, bottom: 4, left: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5ecf6" />
-                  <XAxis dataKey="iteration" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} width={50} />
-                  <Tooltip formatter={(v) => formatNumber(v, 3)} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  {runTags.map((tag, idx) => (
-                    <Line
-                      key={tag}
-                      type="monotone"
-                      dataKey={tag}
-                      stroke={RUN_COLORS[idx % RUN_COLORS.length]}
-                      dot={false}
-                      strokeWidth={1.75}
-                      connectNulls
+        {metrics.map(({ key, label }) => {
+          const isLoss = key === "loss";
+          const yScale = isLoss && lossLog ? "log" : "auto";
+          // Non-log charts pin the y-axis to zero so line curves sit
+          // against a real baseline instead of a stretched auto range.
+          // Log scale can't include zero, so the loss-log view keeps
+          // its tiny epsilon floor.
+          const yDomain = isLoss && lossLog ? [0.001, "auto"] : [0, "auto"];
+          return (
+            <div key={key} className="chart-card">
+              <div className="chart-head">
+                <h4>{label}</h4>
+                {isLoss && (
+                  <button
+                    type="button"
+                    className="chart-toggle"
+                    onClick={() => setLossLog((v) => !v)}
+                  >
+                    {lossLog ? "Linear" : "Log"}
+                  </button>
+                )}
+              </div>
+              <div className="chart-sub">
+                {runTags.length} run(s) overlaid
+                {isLoss && " · spikes at ~3k/6k/9k are opacity resets (expected)"}
+              </div>
+              <div className="chart-wrap">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={dataByMetric[key]} margin={{ top: 4, right: 16, bottom: 4, left: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5ecf6" />
+                    {/* type="number" + explicit domain forces recharts to
+                        treat iteration as a numeric axis and start at 0. */}
+                    <XAxis
+                      dataKey="iteration"
+                      type="number"
+                      domain={[0, "dataMax"]}
+                      tick={{ fontSize: 11 }}
+                      tickFormatter={formatAxisTick}
                     />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+                    <YAxis
+                      tick={{ fontSize: 11 }}
+                      width={50}
+                      scale={yScale}
+                      domain={yDomain}
+                      tickFormatter={formatAxisTick}
+                    />
+                    <Tooltip
+                      content={<ChartTooltip metricKey={key} labelKey="iteration" />}
+                      cursor={{ stroke: "#cbd5e1", strokeWidth: 1 }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    {runTags.map((tag) => (
+                      <Line
+                        key={tag}
+                        type="monotone"
+                        name={shortLabelForTag(tag, (runNumberByTag || {})[tag])}
+                        dataKey={tag}
+                        stroke={colorByRunTag[tag] || BASELINE_COLOR}
+                        dot={false}
+                        strokeWidth={1.75}
+                        connectNulls
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function StackedCharts({ metrics, runTags, seriesByRun }) {
+// PSNR plotted against wall-clock time instead of iteration. The paper's
+// main claim is speedup - if a technique converges to the same PSNR in less
+// wall time than the baseline, its curve sits to the left of the baseline's.
+function PsnrVsWallTimeChart({ runTags, pointsByRun, colorByRunTag, runNumberByTag }) {
+  return (
+    <div className="charts-grid section-spaced">
+      <h3 className="section-title">PSNR vs wall time</h3>
+      <div className="charts-row">
+        <div className="chart-card">
+          <h4>PSNR (dB) vs wall time (s)</h4>
+          <div className="chart-sub">
+            Speedup view. Curves hitting the same PSNR faster land farther left.
+          </div>
+          <div className="chart-wrap tall">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart margin={{ top: 4, right: 16, bottom: 4, left: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5ecf6" />
+                <XAxis
+                  type="number"
+                  dataKey="wall_seconds"
+                  domain={[0, "dataMax"]}
+                  label={{ value: "Wall time (s)", position: "insideBottom", offset: -2, fontSize: 11 }}
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={formatAxisTick}
+                />
+                <YAxis
+                  type="number"
+                  dataKey="psnr"
+                  domain={[0, "auto"]}
+                  tick={{ fontSize: 11 }}
+                  width={50}
+                  tickFormatter={formatAxisTick}
+                />
+                <Tooltip
+                  content={<ChartTooltip metricKey="psnr" labelKey="wall_seconds" />}
+                  cursor={{ stroke: "#cbd5e1", strokeWidth: 1 }}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {runTags.map((tag) => (
+                  <Line
+                    key={tag}
+                    data={pointsByRun[tag] || []}
+                    type="monotone"
+                    name={shortLabelForTag(tag, (runNumberByTag || {})[tag])}
+                    dataKey="psnr"
+                    stroke={colorByRunTag[tag] || BASELINE_COLOR}
+                    dot={false}
+                    strokeWidth={1.75}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Scale + opacity histograms from the final PLY of each run. Each run is
+// rendered as its own chart (bin edges typically differ run-to-run so
+// overlaying on a shared axis doesn't make sense). Paper validation lens:
+// - Scale reset should move the scale histogram leftward: more gaussians
+//   in the smallest bins, fewer big outliers in the right tail.
+// - Entropy constraint polarizes opacity: a tall spike near 0, a tall
+//   spike near 1, and a visibly empty middle band.
+function HistogramCharts({ runTags, histogramsByRun, showScale, showOpacity, colorByRunTag, runNumberByTag }) {
+  return (
+    <div className="charts-grid section-spaced">
+      <h3 className="section-title">Model distributions (from final PLY)</h3>
+      {showScale && (
+        <>
+          <div className="chart-sub section-hint">
+            <strong>Scale distribution.</strong> x-axis is the average size of
+            each gaussian (bigger = covers more pixels). A run where scale
+            reset is doing its job has most of its mass piled up on the left
+            (tiny gaussians) with very little on the right.
+          </div>
+          <div className="charts-row">
+            {runTags.map((tag) => {
+              const hist = histogramsByRun[tag]?.scale;
+              if (!hist || !hist.counts?.length) return null;
+              return (
+                <HistogramCard
+                  key={`scale-${tag}`}
+                  tag={tag}
+                  runNumber={(runNumberByTag || {})[tag]}
+                  color={colorByRunTag[tag] || BASELINE_COLOR}
+                  hist={hist}
+                  xLabel="Mean scale"
+                />
+              );
+            })}
+          </div>
+        </>
+      )}
+      {showOpacity && (
+        <>
+          <div className="chart-sub section-hint">
+            <strong>Opacity distribution.</strong> x-axis is each gaussian's
+            opacity in [0, 1]. A run where the entropy constraint is working
+            has a big bump near 0 (transparent), a big bump near 1 (fully
+            opaque), and a clear valley in the middle.
+          </div>
+          <div className="charts-row">
+            {runTags.map((tag) => {
+              const hist = histogramsByRun[tag]?.opacity;
+              if (!hist || !hist.counts?.length) return null;
+              return (
+                <HistogramCard
+                  key={`opacity-${tag}`}
+                  tag={tag}
+                  runNumber={(runNumberByTag || {})[tag]}
+                  color={colorByRunTag[tag] || BASELINE_COLOR}
+                  hist={hist}
+                  xLabel="Opacity"
+                />
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function HistogramCard({ tag, runNumber, color, hist, xLabel }) {
+  // Turn parallel bins[]/counts[] arrays into Recharts-shaped bars.
+  // XAxis uses type="category" so bars are evenly spaced and the full
+  // width is used regardless of how the distribution is shaped. We
+  // thin out tick labels so the axis stays readable even with 30+ bins.
+  const data = [];
+  const bins = hist.bins || [];
+  const counts = hist.counts || [];
+  for (let i = 0; i < counts.length && i + 1 < bins.length; i++) {
+    const mid = (bins[i] + bins[i + 1]) / 2;
+    data.push({
+      binLabel: formatNumber(mid, 3),
+      bin: mid,
+      count: counts[i],
+      range: `${formatNumber(bins[i], 3)}–${formatNumber(bins[i + 1], 3)}`,
+    });
+  }
+  // Show ~6 tick labels max so they don't collide. First and last are
+  // always included so the axis range is obvious.
+  const tickTargets = 6;
+  const step = Math.max(1, Math.ceil(data.length / tickTargets));
+  const visibleTicks = data
+    .map((d, i) => (i % step === 0 || i === data.length - 1 ? d.binLabel : null))
+    .filter(Boolean);
+  const shortLabel = shortLabelForTag(tag, runNumber);
+  return (
+    <div className="chart-card" style={{ flex: 1 }}>
+      <h4 title={tag}>{shortLabel}</h4>
+      <div className="chart-wrap">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 4, right: 10, bottom: 18, left: 4 }} barCategoryGap={1}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5ecf6" />
+            <XAxis
+              dataKey="binLabel"
+              type="category"
+              interval={0}
+              ticks={visibleTicks}
+              tick={{ fontSize: 10 }}
+              label={{ value: xLabel, position: "insideBottom", offset: -6, fontSize: 10 }}
+            />
+            <YAxis
+              domain={[0, "auto"]}
+              tick={{ fontSize: 10 }}
+              width={46}
+              tickFormatter={formatAxisTick}
+            />
+            <Tooltip
+              content={<HistogramTooltip />}
+              cursor={{ fill: "rgba(15, 107, 216, 0.06)" }}
+            />
+            <Bar dataKey="count" fill={color} isAnimationActive={false}>
+              {data.map((_, i) => (
+                <Cell key={i} fill={color} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+// Placeholder card for the per-pixel gaussian-list-length metric. Lives
+// inside the rasterizer kernel, which we don't currently expose to Python,
+// so there's no data to plot yet. Styled as a neutral "coming soon" card
+// rather than an error-looking empty state.
+function GaussianListPlaceholder() {
+  return (
+    <div className="charts-grid section-spaced">
+      <h3 className="section-title">Gaussian list length per pixel</h3>
+      <div className="placeholder-card">
+        <div className="placeholder-badge">Coming soon</div>
+        <p className="placeholder-text">
+          Requires a custom CUDA rasterizer backend that reports per-pixel
+          alpha-blend lists. Once wired up, this card will show the average
+          number of gaussians that contribute to each pixel — the paper's
+          headline metric.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function StackedCharts({ metrics, runTags, seriesByRun, colorByRunTag, runNumberByTag }) {
   return (
     <div className="charts-grid">
-      {runTags.map((tag, tagIdx) => {
+      {runTags.map((tag) => {
         const entry = seriesByRun[tag];
         const records = entry?.records || [];
-        const color = RUN_COLORS[tagIdx % RUN_COLORS.length];
+        const color = colorByRunTag[tag] || BASELINE_COLOR;
         return (
           <div key={tag}>
-            <h3 style={{ margin: "0 0 6px" }}>{tag}</h3>
+            <h3 className="stacked-run-title" title={tag}>{shortLabelForTag(tag, (runNumberByTag || {})[tag])}</h3>
             {entry?.error ? (
               <div className="reports-empty">Failed to load series: {entry.error}</div>
             ) : records.length === 0 ? (
@@ -477,9 +1069,23 @@ function StackedCharts({ metrics, runTags, seriesByRun }) {
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart data={records} margin={{ top: 4, right: 16, bottom: 4, left: 4 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e5ecf6" />
-                            <XAxis dataKey="iteration" tick={{ fontSize: 11 }} />
-                            <YAxis tick={{ fontSize: 11 }} width={50} />
-                            <Tooltip formatter={(v) => formatNumber(v, 3)} />
+                            <XAxis
+                              dataKey="iteration"
+                              type="number"
+                              domain={[0, "dataMax"]}
+                              tick={{ fontSize: 11 }}
+                              tickFormatter={formatAxisTick}
+                            />
+                            <YAxis
+                              tick={{ fontSize: 11 }}
+                              width={50}
+                              domain={[0, "auto"]}
+                              tickFormatter={formatAxisTick}
+                            />
+                            <Tooltip
+                              content={<ChartTooltip metricKey={key} labelKey="iteration" />}
+                              cursor={{ stroke: "#cbd5e1", strokeWidth: 1 }}
+                            />
                             <Line
                               type="monotone"
                               dataKey={key}

@@ -155,5 +155,147 @@ class RunEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("--max-width 1280", joined)
 
 
+class DatasetRunsTests(unittest.IsolatedAsyncioTestCase):
+    """Covers the /api/datasets/{name}/runs endpoint that powers the
+    two-level Dataset -> Run selector in Gallery and LiveDemos. Runs
+    come from metrics/<tag>/ subdirs matched against per-run splat
+    files under hipergator/gs_final/. Regressions would either hide
+    real runs or surface phantom ones, breaking the dataset picker."""
+
+    def setUp(self):
+        import tempfile
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.orig_datasets_dir = main.datasets_dir
+        self.orig_hpg_dir = main.hpg_dir
+
+        main.datasets_dir = Path(self.tmpdir.name) / "datasets"
+        main.hpg_dir = Path(self.tmpdir.name) / "hipergator"
+        main.datasets_dir.mkdir(parents=True, exist_ok=True)
+        main.hpg_dir.mkdir(parents=True, exist_ok=True)
+        (main.hpg_dir / "gs_final").mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        main.datasets_dir = self.orig_datasets_dir
+        main.hpg_dir = self.orig_hpg_dir
+        self.tmpdir.cleanup()
+
+    def _make_run(self, dataset: str, run_tag: str, *, epoch: float, write_splat: bool = True):
+        ds = main.datasets_dir / dataset
+        metrics_dir = ds / "metrics" / run_tag
+        metrics_dir.mkdir(parents=True, exist_ok=True)
+        (metrics_dir / "metrics_summary.json").write_text(json.dumps({
+            "dataset": dataset,
+            "run_tag": run_tag,
+            "iterations": 1000,
+            "created_at_epoch": epoch,
+        }))
+        if write_splat:
+            (main.hpg_dir / "gs_final" / f"{run_tag}.splat").write_bytes(b"splat")
+
+    async def test_runs_sorted_chronologically_with_run_numbers(self):
+        # Written out of order so we verify the server sorts by
+        # created_at_epoch, not filesystem iteration order.
+        self._make_run("demo", "demo_later_train_20260417_020000", epoch=2000.0)
+        self._make_run("demo", "demo_earlier_train_20260417_010000", epoch=1000.0)
+        self._make_run("demo", "demo_middle_train_20260417_015000", epoch=1500.0)
+
+        resp = await main.list_dataset_runs("demo")
+        runs = json.loads(resp.body.decode("utf-8"))
+
+        self.assertEqual(len(runs), 3)
+        self.assertEqual([r["run_number"] for r in runs], [1, 2, 3])
+        self.assertEqual([r["display_label"] for r in runs], ["Run 1", "Run 2", "Run 3"])
+        self.assertEqual(
+            [r["run_tag"] for r in runs],
+            [
+                "demo_earlier_train_20260417_010000",
+                "demo_middle_train_20260417_015000",
+                "demo_later_train_20260417_020000",
+            ],
+        )
+        for r in runs:
+            self.assertTrue(r["splat_path"].startswith("/api/hpg/gs_final/"))
+            self.assertFalse(r["is_showcase"])
+
+    async def test_runs_include_showcase_entry_when_root_splat_has_no_matching_training_run(self):
+        # Showcase scenes (banana, truck, garden in main) come with a
+        # dataset-root splat that isn't a copy of any training run.
+        ds = main.datasets_dir / "banana"
+        ds.mkdir(parents=True, exist_ok=True)
+        (ds / "banana.splat").write_bytes(b"splat")
+
+        resp = await main.list_dataset_runs("banana")
+        runs = json.loads(resp.body.decode("utf-8"))
+        self.assertEqual(len(runs), 1)
+        self.assertTrue(runs[0]["is_showcase"])
+        self.assertIsNone(runs[0]["run_tag"])
+        self.assertEqual(runs[0]["splat_path"], "/api/datasets/banana/splat")
+
+    async def test_missing_splat_is_still_reported_as_a_run(self):
+        # HPG-side splat got cleaned up but the metrics dir remains.
+        # We still surface it so the user sees its metrics in Reports;
+        # the dropdown filter (splat_path != null) excludes it there.
+        self._make_run("orph", "orph_train_20260417_010000", epoch=1000.0, write_splat=False)
+        resp = await main.list_dataset_runs("orph")
+        runs = json.loads(resp.body.decode("utf-8"))
+        self.assertEqual(len(runs), 1)
+        self.assertIsNone(runs[0]["splat_path"])
+        self.assertEqual(runs[0]["run_number"], 1)
+
+    async def test_unknown_dataset_returns_404(self):
+        with self.assertRaises(HTTPException) as cm:
+            await main.list_dataset_runs("does-not-exist")
+        self.assertEqual(cm.exception.status_code, 404)
+
+
+class JobLogReplayTests(unittest.IsolatedAsyncioTestCase):
+    """Covers the rolling log buffer + /api/jobs/{id}/logs replay
+    endpoint we added so LiveDemos can rehydrate progress state after
+    the user navigates away and back. Regressions here would bring
+    back the "shows idle state after navigation" bug."""
+
+    def setUp(self):
+        main.JOB_META.clear()
+        main.JOB_LOG_BUFFERS.clear()
+
+    def tearDown(self):
+        main.JOB_META.clear()
+        main.JOB_LOG_BUFFERS.clear()
+
+    def test_append_creates_buffer_and_caps_at_max(self):
+        for i in range(main.JOB_LOG_BUFFER_MAX + 50):
+            main._append_to_job_log_buffer("cap-job", f"line {i}")
+        buf = main.JOB_LOG_BUFFERS["cap-job"]
+        self.assertEqual(len(buf), main.JOB_LOG_BUFFER_MAX)
+        self.assertEqual(buf[-1], f"line {main.JOB_LOG_BUFFER_MAX + 49}")
+        self.assertEqual(buf[0], "line 50")
+
+    async def test_logs_endpoint_returns_buffered_lines(self):
+        main.JOB_META["replay-job"] = {"status": "running"}
+        for text in ["INFO: first", "INFO: second", "<<DONE:0>>"]:
+            main._append_to_job_log_buffer("replay-job", text)
+
+        response = await main.get_job_logs("replay-job")
+        body = json.loads(response.body.decode("utf-8"))
+        self.assertEqual(body["job_id"], "replay-job")
+        self.assertEqual(body["lines"], ["INFO: first", "INFO: second", "<<DONE:0>>"])
+        self.assertFalse(body["truncated"])
+
+    async def test_logs_endpoint_404_for_unknown_job(self):
+        with self.assertRaises(HTTPException) as cm:
+            await main.get_job_logs("does-not-exist")
+        self.assertEqual(cm.exception.status_code, 404)
+
+    async def test_logs_endpoint_works_after_meta_cleanup(self):
+        # Producer cleanup only drops JOB_TASKS/QUEUES; META and the log
+        # buffer should still be readable so the frontend can render the
+        # final outcome when the user comes back after the job finished.
+        main._append_to_job_log_buffer("post-job", "INFO: done")
+        main.JOB_META["post-job"] = {"status": "completed"}
+        response = await main.get_job_logs("post-job")
+        body = json.loads(response.body.decode("utf-8"))
+        self.assertEqual(body["lines"], ["INFO: done"])
+
+
 if __name__ == "__main__":
     unittest.main()

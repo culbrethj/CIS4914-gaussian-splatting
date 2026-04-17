@@ -1,0 +1,73 @@
+# Grid for Shorter-Splatting paper validation.
+#
+# run_matrix.py iterates datasets × seeds × configs, one call to
+# fastergs_pipeline.py per combination. Adjust the lists below to
+# scope the run budget.
+#
+# Defaults: 2 datasets × 3 seeds × 5 configs = 30 runs.
+
+datasets:
+  - can
+  - garden
+
+seeds:
+  - 0
+  - 1
+  - 2
+
+# Passed as --iters to fastergs_pipeline.py. The progressive-resolution
+# schedule below assumes 10000 total iterations - update if you change this.
+base_iterations: 10000
+
+# SLURM partition for training. hpg-turin is L4 (sm_89); the FasterGS
+# custom rasterizer + fused Adam both compile cleanly there, so we get
+# the real kernels instead of the B200 fallback. HPG retired the A100
+# partition, so hpg-turin is now the go-to for FasterGS runs.
+partition: hpg-turin
+
+configs:
+  # Two optimizer baselines. Both use the stock Inria rasterizer
+  # because the FasterGS custom rasterizer fails on sm_89 and sm_100
+  # (Apr 17 Phase 1 finding). The difference is the optimizer: stock
+  # torch.optim.Adam vs FasterGS's fused Adam kernel — the latter is
+  # the "partial FasterGS speedup" path that works on both L4 and
+  # B200 via the multi-arch FasterGSCudaBackend wheel.
+
+  # Stock baseline: stock rasterizer + torch.optim.Adam (vendored
+  # fork's shipped defaults). Reference point for all other configs.
+  - name: stock_baseline
+    flags: {}
+
+  # FasterGS fused Adam: stock rasterizer, but swap the optimizer
+  # for FasterGS's fused kernel. Head-to-head comparison tells us
+  # how much of the FasterGS speedup we keep when the rasterizer is
+  # unavailable. Wall-time delta vs stock_baseline at matched PSNR
+  # is the headline number here.
+  - name: fastergs_adam
+    flags:
+      use_fastergs_adam: true
+
+  # --- Shorter-Splatting paper variants (all with stock Adam for now) ---
+  # Scale reset only.
+  - name: scale_reset
+    flags:
+      shortgs_scale_reset_every: 1000
+      shortgs_scale_reset_factor: 0.9
+
+  # Entropy constraint only.
+  - name: entropy
+    flags:
+      shortgs_entropy_weight: 0.01
+
+  # Progressive resolution only.
+  - name: progressive
+    flags:
+      shortgs_progressive_resolution: "0:0.25,5000:0.5,10000:1.0"
+
+  # All three combined - this is the paper's headline configuration.
+  - name: combined
+    flags:
+      shortgs_scale_reset_every: 1000
+      shortgs_scale_reset_factor: 0.9
+      shortgs_entropy_weight: 0.01
+      shortgs_progressive_resolution: "0:0.25,5000:0.5,10000:1.0"

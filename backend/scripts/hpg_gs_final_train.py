@@ -1,6 +1,30 @@
+"""
+Submits the Faster-GS GPU training job to SLURM and fetches the result.
+
+Generates + uploads an sbatch script that:
+  1. Loads modules, builds/activates the pinned conda env.
+  2. Pulls the Inria Faster-GS fork (git clone/pull) into ``$REPO_DIR``.
+  3. Runs ``shortgs_apply_patches.py`` to insert the paper's techniques
+     into ``train.py`` behind ``SHORTGS_*`` env vars (no-op when unset).
+  4. Tees ``python train.py`` stdout to ``$TRAIN_LOG`` and runs at the
+     dense eval schedule (every ``iterations/10`` iters) so the Reports
+     page gets a real PSNR + gaussian-count curve.
+  5. Converts the final ``point_cloud.ply`` -> ``.splat`` via ``converter.py``.
+  6. Collects structured metrics with ``metrics_collector.py`` and renders
+     per-metric PNGs with ``metrics_plotter.py``.
+
+After SLURM reports COMPLETED the script scp's ``.splat`` + ``.ply`` +
+metrics back to ``backend/hipergator/gs_final/`` + ``backend/datasets/<ds>/metrics/<run_tag>/``.
+
+Most HPG-specific paths default to ``/blue/cis4914/joshuabowman/...`` but
+every one can be overridden via CLI flag or environment variable; see
+``--help`` for the full list.
+"""
+
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shlex
 import subprocess
@@ -15,26 +39,35 @@ from pathlib import Path
 # has the Faster-GS modifications applied. We install the CUDA backend (the
 # custom rasterizer) separately from the NeRFICG project.
 # Python 3.10.14 + CUDA 12.8 are pinned to match what B200 drivers expect.
-# TORCH_CUDA_ARCH_LIST 10.0 is the B200 arch; override if you run on a100
-# (TORCH_CUDA_ARCH_LIST=8.0) to avoid rebuilding extensions every time.
-DEFAULT_REMOTE_ROOT = "/blue/cis4914/joshuabowman/gs_final"
-DEFAULT_REPO_DIR = "/blue/cis4914/joshuabowman/gs_final/src/fastergs_inria"
+# TORCH_CUDA_ARCH_LIST "8.9;10.0" covers both L4 (hpg-turin, sm_89) and
+# B200 (hpg-b200, sm_100) so the env's CUDA extensions run on either
+# partition without a rebuild. Override if your target partition uses a
+# different compute capability.
+# HPG workspace root. Every default path below is derived from this so you
+# can point the whole pipeline at a different user's /blue space by setting
+# one env var (FASTERGS_REMOTE_ROOT). CLI flags still override per-path.
+DEFAULT_REMOTE_ROOT = os.environ.get("FASTERGS_REMOTE_ROOT", "/blue/cis4914/joshuabowman/gs_final")
+DEFAULT_REPO_DIR = f"{DEFAULT_REMOTE_ROOT}/src/fastergs_inria"
 DEFAULT_REPO_URL = "https://github.com/fhahlbohm/gaussian-splatting.git"
-DEFAULT_ENV_PREFIX = "/blue/cis4914/joshuabowman/gs_final/envs/fastergs_cuda128"
+DEFAULT_ENV_PREFIX = f"{DEFAULT_REMOTE_ROOT}/envs/fastergs_cuda128"
 DEFAULT_MODULES = "git cmake gcc/12.2.0 conda/25.7.0 cuda/12.8.1"
 DEFAULT_BACKEND_PIP = (
     "git+https://github.com/nerficg-project/faster-gaussian-splatting/#subdirectory=FasterGSCudaBackend"
 )
-DEFAULT_CONVERTER_SCRIPT = "/blue/cis4914/joshuabowman/gs_final/src/converter.py"
-DEFAULT_PREFLIGHT_SCRIPT = "/blue/cis4914/joshuabowman/gs_final/src/fastergs_preflight.py"
-DEFAULT_METRICS_COLLECTOR_SCRIPT = "/blue/cis4914/joshuabowman/gs_final/src/metrics_collector.py"
-DEFAULT_METRICS_PLOTTER_SCRIPT = "/blue/cis4914/joshuabowman/gs_final/src/metrics_plotter.py"
+DEFAULT_CONVERTER_SCRIPT = f"{DEFAULT_REMOTE_ROOT}/src/converter.py"
+DEFAULT_PREFLIGHT_SCRIPT = f"{DEFAULT_REMOTE_ROOT}/src/fastergs_preflight.py"
+DEFAULT_METRICS_COLLECTOR_SCRIPT = f"{DEFAULT_REMOTE_ROOT}/src/metrics_collector.py"
+DEFAULT_METRICS_PLOTTER_SCRIPT = f"{DEFAULT_REMOTE_ROOT}/src/metrics_plotter.py"
+# Shorter-Splatting paper patch applier - runs right after the repo is
+# cloned/updated to insert the SHORTGS_* technique blocks into train.py.
+# Idempotent; safe to run on every training job.
+DEFAULT_SHORTGS_PATCHES_SCRIPT = f"{DEFAULT_REMOTE_ROOT}/src/shortgs_apply_patches.py"
 DEFAULT_PINNED_PYTHON = "3.10.14"
 DEFAULT_PINNED_TORCH = "auto"
 DEFAULT_PINNED_TORCHVISION = "auto"
 DEFAULT_PINNED_TORCHAUDIO = "auto"
 DEFAULT_PINNED_PYTORCH_CUDA = "12.8"
-DEFAULT_TORCH_CUDA_ARCH_LIST = "10.0"
+DEFAULT_TORCH_CUDA_ARCH_LIST = "8.9;10.0"
 
 
 def log(message: str):
@@ -234,8 +267,10 @@ def build_sbatch_script(
     preflight_script: str,
     metrics_collector_script: str,
     metrics_plotter_script: str,
+    shortgs_patches_script: str,
     dataset_label_for_metrics: str,
     run_tag: str,
+    use_fastergs_adam: bool,
     slurm_time: str,
     slurm_cpus: int,
     slurm_mem: str,
@@ -264,6 +299,27 @@ def build_sbatch_script(
     if modules.strip():
         module_block = f"module purge\nmodule load {modules.strip()}\n"
 
+    # Forward SHORTGS_* env vars from whoever invoked this script (typically
+    # fastergs_pipeline.py with flags from the user / experiment harness).
+    # Each becomes an export line in the SLURM bash; missing ones are
+    # explicitly unset so the trainer sees consistent state regardless of
+    # what might already be in the login shell env.
+    shortgs_vars = [
+        "SHORTGS_SCALE_RESET_EVERY",
+        "SHORTGS_SCALE_RESET_FACTOR",
+        "SHORTGS_ENTROPY_WEIGHT",
+        "SHORTGS_PROGRESSIVE_RESOLUTION",
+        "SHORTGS_SEED",
+    ]
+    shortgs_lines = []
+    for name in shortgs_vars:
+        value = os.environ.get(name, "")
+        if value:
+            shortgs_lines.append(f"export {name}={shlex.quote(value)}")
+        else:
+            shortgs_lines.append(f"unset {name}")
+    shortgs_env_block = "\n".join(shortgs_lines)
+
     script = f"""#!/bin/bash
 set -euo pipefail
 {module_block}
@@ -284,8 +340,15 @@ CONVERTER={shlex.quote(converter_script)}
 PREFLIGHT={shlex.quote(preflight_script)}
 METRICS_COLLECTOR={shlex.quote(metrics_collector_script)}
 METRICS_PLOTTER={shlex.quote(metrics_plotter_script)}
+SHORTGS_PATCHES={shlex.quote(shortgs_patches_script)}
 METRICS_DATASET_LABEL={shlex.quote(dataset_label_for_metrics)}
 RUN_TAG={shlex.quote(run_tag)}
+USE_FASTERGS_ADAM_TOGGLE={1 if use_fastergs_adam else 0}
+
+# Shorter-Splatting opt-in flags forwarded from the local invocation.
+# Empty means the technique is off. The vendored fork doesn't read these
+# yet; once it's patched, train.py can pick them up from env.
+{shortgs_env_block}
 
 SCENE="$ROOT/experiments/faster-gs/datasets/$DATASET"
 RUN_DIR="$ROOT/outputs/faster-gs/$RUN_TAG"
@@ -338,6 +401,10 @@ ensure_repo() {{
   cd "$REPO_DIR"
   git fetch --all
   git checkout "$REPO_BRANCH"
+  # Our shortgs patcher may have edited train.py on a previous run. git pull
+  # --ff-only fails on a dirty tree, so reset tracked files first. New files
+  # we don't control (if any) are left alone.
+  git checkout -- train.py 2>/dev/null || true
   git pull --ff-only
   git submodule update --init --recursive
 }}
@@ -493,17 +560,63 @@ run_training() {{
   echo "[stage:$STAGE] run_dir=$RUN_DIR"
   echo "[stage:$STAGE] iterations={iterations}"
 
-  # B200 fallback: the Faster-GS custom CUDA rasterizer/optimizer currently
-  # fail to compile against B200's compute capability 10.0. Flip the flags
-  # back to the stock gaussian-splatting paths so training still runs. On
-  # a100 partitions you can leave these True for the real speedup.
+  # Kernel toggles for the vendored FasterGS Inria fork.
+  #
+  # The fork ships with USE_FASTERGS_RASTERIZER = False and
+  # USE_FASTERGS_ADAM = False. Our experiments expose two independent
+  # knobs:
+  #
+  #   - Custom rasterizer: DISABLED unconditionally. Phase 1 (Apr 17)
+  #     confirmed it fails on both L4 (sm_89) and B200 (sm_100) with
+  #     cudaErrorInvalidConfiguration at iter 0. Recompile doesn't fix
+  #     it; the bug is in the kernel launch parameters themselves.
+  #     The B200-fallback sed and the enable sed are both commented
+  #     out so we always run the stock Inria rasterizer. Re-enable
+  #     upstream if/when FasterGS patches the launch config.
+  #
+  #   - Fused Adam: controlled by USE_FASTERGS_ADAM_TOGGLE (plumbed in
+  #     from --use-fastergs-adam via fastergs_pipeline / run_matrix).
+  #     0 = stock torch.optim.Adam (vendored default; safe on all
+  #     architectures). 1 = flip the source line to True and train
+  #     with FasterGS's fused Adam kernel. Verified working on B200
+  #     (SLURM 30208346: 2000 iters, PSNR 30.46, 16s wall) via the
+  #     multi-arch "8.9;10.0" FasterGSCudaBackend wheel — which means
+  #     it should also work on L4, but we only sanity-check that in
+  #     the Apr 17 smoke tests.
   if [ -f gaussian_renderer/__init__.py ]; then
-    sed -i 's/^USE_FASTERGS_RASTERIZER = True/USE_FASTERGS_RASTERIZER = False/' gaussian_renderer/__init__.py || true
-    echo "[stage:$STAGE] rasterizer_mode=standard"
+    # B200 full-fallback:     sed -i 's/^USE_FASTERGS_RASTERIZER = True/USE_FASTERGS_RASTERIZER = False/' gaussian_renderer/__init__.py || true
+    # Enable custom rasterizer (broken on sm_89 + sm_100 as of Apr 17):
+    # sed -i 's/^USE_FASTERGS_RASTERIZER = False/USE_FASTERGS_RASTERIZER = True/' gaussian_renderer/__init__.py || true
+    if grep -q "^USE_FASTERGS_RASTERIZER = True" gaussian_renderer/__init__.py; then
+      echo "[stage:$STAGE] rasterizer_mode=fastergs"
+    else
+      echo "[stage:$STAGE] rasterizer_mode=standard"
+    fi
   fi
   if [ -f scene/gaussian_model.py ]; then
+    # Always reset to False first so previous runs' flips don't leak
+    # across matrix rows. Then apply the runtime toggle: when it's on,
+    # flip False→True so the next `import FusedAdam` path activates.
     sed -i 's/^USE_FASTERGS_ADAM = True/USE_FASTERGS_ADAM = False/' scene/gaussian_model.py || true
-    echo "[stage:$STAGE] optimizer_mode=adam"
+    if [ "$USE_FASTERGS_ADAM_TOGGLE" = "1" ]; then
+      sed -i 's/^USE_FASTERGS_ADAM = False/USE_FASTERGS_ADAM = True/' scene/gaussian_model.py || true
+    fi
+    if grep -q "^USE_FASTERGS_ADAM = True" scene/gaussian_model.py; then
+      echo "[stage:$STAGE] optimizer_mode=fastergs_adam"
+    else
+      echo "[stage:$STAGE] optimizer_mode=adam"
+    fi
+  fi
+
+  # Apply Shorter-Splatting paper patches to the vendored Inria fork BEFORE
+  # training starts. Patches read SHORTGS_* env vars at runtime so they stay
+  # no-ops unless the user set flags. Idempotent - safe to run every job.
+  # If the patcher is missing or errors, we log a warning and proceed with
+  # stock training so a bad patch never breaks a baseline run.
+  if [ -f "$SHORTGS_PATCHES" ]; then
+    python "$SHORTGS_PATCHES" --repo-dir "$REPO_DIR" || echo "[warn] shortgs patches failed, continuing with stock train.py"
+  else
+    echo "[stage:$STAGE] shortgs patches script not present ($SHORTGS_PATCHES); stock train.py"
   fi
 
   # Record when training starts so metrics_collector can derive wall_seconds
@@ -511,16 +624,57 @@ run_training() {{
   TRAIN_START_EPOCH=$(date +%s)
   echo "[stage:$STAGE] train_start_epoch=$TRAIN_START_EPOCH"
 
+  # Dense eval + save schedule so the Reports page gets smooth curves.
+  # Two frequencies:
+  #   - EVAL_ITERS (every 500): drives --test_iterations + --save_iterations.
+  #     PSNR/SSIM/LPIPS passes cost real time, so keep these sparser. The
+  #     saved PLYs also give us gaussian-count + splats-per-frame + wall-
+  #     seconds samples every 500 iters (these come from the saved PLY
+  #     file's vertex count + mtime - the Inria trainer doesn't print
+  #     them in the tqdm line, so that's the cheapest source we have).
+  #   - The dense loss curve comes from the tqdm progress lines the
+  #     trainer prints continuously, which metrics_collector downsamples
+  #     to every 100 iters (PROGRESS_STRIDE).
+  # Net effect: ~100 loss points and ~20 PSNR / gaussian-count points on
+  # a 10k-iter run, without meaningfully slowing training down.
+  TOTAL_ITERS={iterations}
+  EVAL_STRIDE=500
+  if [ "$TOTAL_ITERS" -lt "$EVAL_STRIDE" ]; then
+    # Very short runs still get at least one eval + save at the end.
+    EVAL_STRIDE=$TOTAL_ITERS
+  fi
+  EVAL_ITERS=""
+  ITER_N=$EVAL_STRIDE
+  while [ "$ITER_N" -le "$TOTAL_ITERS" ]; do
+    EVAL_ITERS="$EVAL_ITERS $ITER_N"
+    ITER_N=$(( ITER_N + EVAL_STRIDE ))
+  done
+  # Always include the final iteration so we end with a clean datapoint
+  # even when TOTAL_ITERS isn't a clean multiple of EVAL_STRIDE.
+  case " $EVAL_ITERS " in
+    *" $TOTAL_ITERS "*) : ;;
+    *) EVAL_ITERS="$EVAL_ITERS $TOTAL_ITERS" ;;
+  esac
+  echo "[stage:$STAGE] eval_iters=$EVAL_ITERS"
+
   # Tee stdout to a log file so metrics_collector can parse loss/PSNR lines
   # after the fact. stderr stays on the SLURM err stream.
+  # --test_iterations drives [ITER N] PSNR eval lines in the log.
+  # --save_iterations drives point_cloud/iteration_N/point_cloud.ply writes
+  # (which metrics_collector uses to count gaussians + stamp wall_seconds).
   python train.py \
     -s "$SCENE" \
     -m "$RUN_DIR" \
     --optimizer_type default \
     --iterations {iterations} \
+    --test_iterations $EVAL_ITERS \
+    --save_iterations $EVAL_ITERS \
     --disable_viewer 2>&1 | tee "$TRAIN_LOG"
 
-  PLY_PATH="$(ls -1 "$RUN_DIR"/point_cloud/iteration_*/point_cloud.ply 2>/dev/null | tail -n 1 || true)"
+  # -v (version sort) so "iteration_10000" sorts AFTER "iteration_9000".
+  # Default lexicographic sort puts "10000" before "9000" and we'd pick the
+  # wrong checkpoint when saving is dense (every 1000 iters).
+  PLY_PATH="$(ls -1v "$RUN_DIR"/point_cloud/iteration_*/point_cloud.ply 2>/dev/null | tail -n 1 || true)"
   if [ -z "$PLY_PATH" ]; then
     echo "[error] point_cloud.ply not found under $RUN_DIR/point_cloud" >&2
     exit 24
@@ -549,6 +703,8 @@ run_training() {{
   # We don't fail training if this step errors - worst case the frontend just
   # shows "no metrics for this run".
   if [ -f "$METRICS_COLLECTOR" ]; then
+    SEED_ARG=""
+    if [ -n "${{SHORTGS_SEED:-}}" ]; then SEED_ARG="--seed $SHORTGS_SEED"; fi
     python "$METRICS_COLLECTOR" \
       --run-dir "$RUN_DIR" \
       --log-file "$TRAIN_LOG" \
@@ -558,7 +714,28 @@ run_training() {{
       --run-tag "$RUN_TAG" \
       --iterations {iterations} \
       --partition "${{SLURM_JOB_PARTITION:-}}" \
-      --start-epoch "$TRAIN_START_EPOCH" || echo "[warn] metrics_collector returned non-zero"
+      --start-epoch "$TRAIN_START_EPOCH" \
+      $SEED_ARG || echo "[warn] metrics_collector returned non-zero"
+
+    # Append shortgs config to the summary so compare.py can group by it.
+    # Uses python -c to do the in-place json edit - keeps the logic out
+    # of fragile bash string manipulation.
+    python -c "
+import json, os, sys
+p = os.path.join(r'''$METRICS_DIR''', 'metrics_summary.json')
+if not os.path.isfile(p):
+    sys.exit(0)
+with open(p) as f:
+    d = json.load(f)
+d['shortgs'] = {{
+    'scale_reset_every': int(os.environ.get('SHORTGS_SCALE_RESET_EVERY') or 0),
+    'scale_reset_factor': float(os.environ.get('SHORTGS_SCALE_RESET_FACTOR') or 1.0),
+    'entropy_weight': float(os.environ.get('SHORTGS_ENTROPY_WEIGHT') or 0.0),
+    'progressive_resolution': os.environ.get('SHORTGS_PROGRESSIVE_RESOLUTION') or '',
+}}
+with open(p, 'w') as f:
+    json.dump(d, f, indent=2)
+" || echo "[warn] summary shortgs annotation failed"
   else
     echo "[warn] metrics collector script missing: $METRICS_COLLECTOR"
   fi
@@ -659,10 +836,22 @@ def main():
     parser.add_argument("--preflight-script", default=DEFAULT_PREFLIGHT_SCRIPT, help="Remote preflight script path")
     parser.add_argument("--metrics-collector-script", default=DEFAULT_METRICS_COLLECTOR_SCRIPT, help="Remote metrics_collector.py path")
     parser.add_argument("--metrics-plotter-script", default=DEFAULT_METRICS_PLOTTER_SCRIPT, help="Remote metrics_plotter.py path")
+    parser.add_argument("--shortgs-patches-script", default=DEFAULT_SHORTGS_PATCHES_SCRIPT, help="Remote shortgs_apply_patches.py path")
+    # Opt into FasterGS's fused Adam kernel. Default off because the
+    # vendored fork ships with USE_FASTERGS_ADAM=False. On both L4 and
+    # B200 the multi-arch FasterGSCudaBackend wheel supports it; the
+    # custom rasterizer remains off either way (broken on sm_89+sm_100
+    # as of Apr 17). The matrix config name `fastergs_adam` sets this.
+    parser.add_argument("--use-fastergs-adam", action=argparse.BooleanOptionalAction, default=False,
+                        help="Flip USE_FASTERGS_ADAM=True in the vendored fork before training.")
+    parser.add_argument("--run-label", default="",
+                        help="Short tag injected into the run_tag (e.g. 's1-baseline' or 's1-shortgs-sr-ent'). "
+                             "When set, run_tag becomes '<dataset>_<label>_<stage>_<timestamp>'. "
+                             "Empty falls back to the legacy '<dataset>_<stage>_<timestamp>' format.")
     parser.add_argument("--metrics-local-dir", default=None, help="Local dir root for fetched metrics (default: backend/datasets/<dataset>/metrics)")
     parser.add_argument("--metrics-dataset-label", default=None, help="Dataset label recorded in metrics_summary.json (default: --dataset)")
     parser.add_argument("--slurm-time", default="06:00:00", help="SLURM time limit")
-    parser.add_argument("--slurm-partition", default="hpg-b200", help="SLURM partition")
+    parser.add_argument("--slurm-partition", default="hpg-turin", help="SLURM partition (hpg-turin = L4/sm_89; FasterGS custom rasterizer currently disabled on both sm_89 and sm_100)")
     parser.add_argument("--slurm-account", default=None, help="SLURM account")
     parser.add_argument("--slurm-cpus", type=int, default=1, help="SLURM CPUs")
     parser.add_argument("--slurm-mem", default="12G", help="SLURM memory")
@@ -692,7 +881,17 @@ def main():
 
     root = args.remote_root.rstrip("/")
     remote_logs_dir = f"{root}/logs"
-    run_tag = f"{args.dataset}_{args.stage}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    # Validate run-label against the same regex dataset names use, so the
+    # resulting run_tag stays safe in paths and URL segments. Allow letters,
+    # digits, '_', '-', '.'. Empty is fine - we fall back to the legacy
+    # "<dataset>_<stage>_<timestamp>" shape.
+    if args.run_label and not re.fullmatch(r"[A-Za-z0-9_.-]+", args.run_label):
+        raise SystemExit(f"invalid --run-label: {args.run_label!r} (allowed: letters, digits, _ . -)")
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if args.run_label:
+        run_tag = f"{args.dataset}_{args.run_label}_{args.stage}_{stamp}"
+    else:
+        run_tag = f"{args.dataset}_{args.stage}_{stamp}"
     remote_run_dir = f"{root}/outputs/faster-gs/{run_tag}"
     remote_splat = f"{root}/outputs/{run_tag}.splat"
     remote_latest_ply = f"{remote_run_dir}/latest_point_cloud.ply"
@@ -768,6 +967,20 @@ def main():
             label="metrics plotter script",
             dry_run=args.dry_run,
         )
+
+    # Shorter-Splatting paper patcher. Uploaded every run so updates to the
+    # local patch script propagate to HPG without a manual sync step.
+    local_shortgs_patches = backend_dir / "scripts" / "shortgs_apply_patches.py"
+    if args.shortgs_patches_script == DEFAULT_SHORTGS_PATCHES_SCRIPT and local_shortgs_patches.is_file():
+        sync_remote_file(
+            ssh=ssh,
+            scp_base=scp_base,
+            remote_host=args.remote,
+            local_source=local_shortgs_patches,
+            remote_target=args.shortgs_patches_script,
+            label="shortgs patches script",
+            dry_run=args.dry_run,
+        )
     try:
         check_remote_dataset(ssh=ssh, scene_dir=remote_scene_dir, preflight_script=args.preflight_script, dry_run=args.dry_run)
     except subprocess.CalledProcessError as exc:
@@ -799,8 +1012,10 @@ def main():
         preflight_script=args.preflight_script,
         metrics_collector_script=args.metrics_collector_script,
         metrics_plotter_script=args.metrics_plotter_script,
+        shortgs_patches_script=args.shortgs_patches_script,
         dataset_label_for_metrics=(args.metrics_dataset_label or args.dataset),
         run_tag=run_tag,
+        use_fastergs_adam=args.use_fastergs_adam,
         slurm_time=args.slurm_time,
         slurm_cpus=args.slurm_cpus,
         slurm_mem=args.slurm_mem,
@@ -859,7 +1074,7 @@ def main():
             ssh
             + [
                 bash_lc(
-                    f'PLY_PATH="$(ls -1 {shlex.quote(remote_run_dir)}/point_cloud/iteration_*/point_cloud.ply 2>/dev/null | tail -n 1 || true)"; '
+                    f'PLY_PATH="$(ls -1v {shlex.quote(remote_run_dir)}/point_cloud/iteration_*/point_cloud.ply 2>/dev/null | tail -n 1 || true)"; '
                     + f'if [ -n "$PLY_PATH" ]; then cp -f "$PLY_PATH" {shlex.quote(remote_latest_ply)}; fi'
                 )
             ]

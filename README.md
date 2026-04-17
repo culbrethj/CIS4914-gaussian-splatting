@@ -72,3 +72,23 @@ API will be available at `http://localhost:8000`.
 Follow platform instructions on [https://github.com/pierotofy/OpenSplat](https://github.com/pierotofy/OpenSplat)
 
 Final binaries go in backend/binaries
+
+---
+
+### Training backends
+
+The Live Demos page lets you pick between two training backends:
+
+- **OpenSplat** — runs locally against the bundled binary under
+  `backend/binaries/`. No GPU required (CPU or CUDA).
+- **Faster-GS** — sends the job to HiPerGator and trains there on a GPU
+  partition. This is the default and tends to be more reliable.
+
+OpenSplat is simpler to set up (no HPG account needed) but has had
+dylib/runtime issues on some machines. Faster-GS needs an HPG account and
+an SSH alias `hpg`, but gives you the full pipeline with metrics + charts
+on the Reports page.
+
+Full Faster-GS setup instructions (HPG workspace layout, camera-model
+undistort step, troubleshooting) live in
+[backend/experiments/faster-gs/README.md](backend/experiments/faster-gs/README.md).

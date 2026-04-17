@@ -1,3 +1,22 @@
+"""
+Preflight check for datasets going into the Faster-GS Inria fork trainer.
+
+Reads COLMAP's ``cameras.bin`` + ``images.bin`` directly (without needing
+pycolmap on the remote node) and verifies the sparse model is compatible
+with the Inria trainer's loader. The main thing we're guarding against is
+a SIMPLE_RADIAL sparse model reaching the trainer: its loader only handles
+SIMPLE_PINHOLE / PINHOLE cameras, and feeding it anything else produces a
+cryptic crash mid-setup.
+
+Exit codes:
+  0  dataset is compatible, safe to train
+  2  dataset is NOT compatible (see printed report)
+  other  unexpected error (e.g. dataset dir missing)
+
+Usable either as a CLI (``python fastergs_preflight.py <dataset>``) or via
+``inspect_dataset()``.
+"""
+
 from __future__ import annotations
 
 import argparse

@@ -1,3 +1,15 @@
+"""
+Local dataset prep helper for Faster-GS testing.
+
+Runs ``colmap image_undistorter`` on an existing dataset locally (no SLURM,
+no HPG) and checks the output with ``fastergs_preflight``. Handy when
+iterating on camera-model / distortion fixes on a laptop without burning
+HPG compute time. Not used by the web pipeline - the production path goes
+through ``hpg_gs_final_prepare.py`` instead.
+
+Requires local ``colmap`` on the PATH (or ``--colmap-executable``).
+"""
+
 from __future__ import annotations
 
 import argparse

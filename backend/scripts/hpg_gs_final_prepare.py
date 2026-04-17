@@ -1,6 +1,22 @@
+"""
+Submits the SfM + undistort SLURM job for the Faster-GS backend on HPG.
+
+Workflow (inside the generated sbatch script, run on a CPU compute node):
+  1. ``colmap feature_extractor`` on the rsynced images (SIMPLE_RADIAL).
+  2. ``colmap sequential_matcher`` + ``colmap mapper`` -> sparse model.
+  3. ``colmap image_undistorter`` rewrites images + sparse model into an
+     undistorted PINHOLE space so the Inria Faster-GS loader can read it.
+  4. Flattens the undistorter output into the standard ``sparse/0/`` layout.
+  5. Runs ``fastergs_preflight.py`` to confirm the result is trainer-ready.
+
+COLMAP runs inside an apptainer container (``/apps/colmap/3.11/container.sif``
+by default) since HPG login/compute nodes don't have ``colmap`` on the PATH.
+"""
+
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shlex
 import subprocess
@@ -10,9 +26,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-DEFAULT_REMOTE_ROOT = "/blue/cis4914/joshuabowman/gs_final"
-DEFAULT_COLMAP_CONTAINER = "/apps/colmap/3.11/container.sif"
-DEFAULT_PREFLIGHT_SCRIPT = "/blue/cis4914/joshuabowman/gaussian-splatting/backend/scripts/fastergs_preflight.py"
+# HPG workspace defaults. FASTERGS_REMOTE_ROOT env var overrides the root;
+# all derived paths follow from it so teammates can point at their own
+# /blue space with a single export.
+DEFAULT_REMOTE_ROOT = os.environ.get("FASTERGS_REMOTE_ROOT", "/blue/cis4914/joshuabowman/gs_final")
+DEFAULT_COLMAP_CONTAINER = os.environ.get(
+    "FASTERGS_COLMAP_CONTAINER", "/apps/colmap/3.11/container.sif"
+)
+DEFAULT_PREFLIGHT_SCRIPT = f"{DEFAULT_REMOTE_ROOT}/src/fastergs_preflight.py"
 
 
 def log(message: str):

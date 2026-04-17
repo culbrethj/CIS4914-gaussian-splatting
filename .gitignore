@@ -1,21 +1,44 @@
-data/
+# --- Python ---
 __pycache__/
-node_modules
+*.pyc
+*.pyo
 venv/
 .env
+.pytest_cache/
+
+# --- Node / Vite ---
+node_modules
+frontend/dist/
+
+# --- macOS / editor junk ---
+**/.DS_Store
+
+# --- Project data dirs (local only, too large for git) ---
+data/
 database.db
 sparse/
 backend/datasets
 backend/data_output
-.DS_Store
 
-# OpenSplat runtime deps
+# Per-dataset intermediate + output artifacts. The `backend/datasets` rule
+# above already covers everything inside, but these are listed explicitly
+# so new files like `output.ply` / `output.splat` at other paths are also
+# caught.
+backend/datasets/*/splat.ply
+backend/datasets/*/splat.splat
+backend/datasets/*/output.ply
+backend/datasets/*/output.splat
+backend/datasets/*/sparse/
+backend/datasets/*/database.db
+
+# --- OpenSplat runtime deps ---
 backend/*.dll
 backend/*.exe
 backend/binaries/*.dll
 
-# HiPerGator artifacts (trained splats, build logs, fetched runs)
-# these are large binaries + SLURM logs, keep them local only
+# --- HiPerGator artifacts (trained splats, build logs, fetched runs) ---
+# These are large binaries + SLURM logs. Keep them local only - teammates
+# regenerate by running the pipeline.
 backend/build_logs/
 backend/hipergator/gs_final/
 backend/hipergator/*_latest.splat

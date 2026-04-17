@@ -179,13 +179,26 @@ export default function GaussViewer({ datasetName = null, splatApiPath = null })
 
     return (
         <>
-            <div style={{ position: "relative", marginBottom: 8 }}>
+            <div style={{ position: "relative", marginBottom: 8, minHeight: 36 }}>
                 <div style={{ position: "absolute", left: 8, top: 8, zIndex: 5 }}>
-                    <button onClick={() => setFreecamEnabled((v) => !v)}>
+                    <button
+                        onClick={() => setFreecamEnabled((v) => !v)}
+                        style={{
+                            padding: "6px 12px",
+                            borderRadius: 6,
+                            border: "1px solid #0048a4",
+                            background: freecamEnabled ? "#0048a4" : "#0f6bd8",
+                            color: "white",
+                            fontWeight: 600,
+                            fontSize: 13,
+                            cursor: "pointer",
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+                        }}
+                    >
                         {freecamEnabled ? "Disable Freecam" : "Enable Freecam"}
                     </button>
                 </div>
-                <div style={{ position: "absolute", right: 8, top: 8, zIndex: 5, color: "#666", fontSize: 13 }}>
+                <div style={{ position: "absolute", right: 8, top: 12, zIndex: 5, color: "#666", fontSize: 13 }}>
                     {freecamEnabled ? "Click canvas to lock pointer. WASD + Space/Ctrl to move." : "Orbit controls active"}
                 </div>
             </div>

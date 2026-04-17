@@ -1,0 +1,38 @@
+# Minimal A/B test matrix - quick validation that the shortgs hooks fire.
+#
+# 1 dataset x 1 seed x 4 configs = 4 runs. At 10k iterations on hpg-turin
+# (L4, sm_89) you're looking at roughly 20-30 minutes total (plus queue wait).
+#
+# Swap "test1234" for whatever small dataset you already have frames for.
+# The pipeline expects backend/datasets/<name>/video/<something>.mp4 - so
+# if you've already uploaded a video through the UI, the dataset name is
+# whatever you typed in the upload form.
+
+datasets:
+  - test1234
+
+seeds:
+  - 0
+
+base_iterations: 10000
+
+partition: hpg-turin
+
+configs:
+  - name: baseline
+    flags: {}
+
+  - name: scale_reset
+    flags:
+      shortgs_scale_reset_every: 1000
+      shortgs_scale_reset_factor: 0.9
+
+  - name: entropy
+    flags:
+      shortgs_entropy_weight: 0.01
+
+  - name: combined
+    flags:
+      shortgs_scale_reset_every: 1000
+      shortgs_scale_reset_factor: 0.9
+      shortgs_entropy_weight: 0.01

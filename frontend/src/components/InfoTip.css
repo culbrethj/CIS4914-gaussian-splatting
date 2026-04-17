@@ -1,0 +1,72 @@
+/* Duplicated selectors (`button.info-tip-btn`) make sure these rules
+   win against any page-level `button { ... }` baseline that otherwise
+   tries to paint the icon in the brand blue / white-text style meant
+   for action buttons. Every (i) should look the same everywhere. */
+.info-tip-btn,
+button.info-tip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid #cbd5e1;
+  background: white;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 700;
+  font-style: italic;
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1;
+  cursor: help;
+  padding: 0;
+  margin-left: 6px;
+  flex-shrink: 0;
+  box-shadow: none;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+/* Disabled parent label (e.g. a shorter-splatting technique toggled
+   off) shouldn't make the tooltip icon look pressed / different from
+   the rest. Re-assert the defaults. */
+.info-tip-btn:disabled,
+button.info-tip-btn:disabled {
+  opacity: 1;
+  background: white;
+  color: #64748b;
+  border-color: #cbd5e1;
+  cursor: help;
+}
+
+.info-tip-btn:hover,
+.info-tip-btn:focus,
+button.info-tip-btn:hover,
+button.info-tip-btn:focus {
+  color: #0f6bd8;
+  border-color: #0f6bd8;
+  background: #f4f8ff;
+  outline: none;
+}
+
+.info-tip-bubble {
+  position: fixed;
+  z-index: 250;
+  background: #0f172a;
+  color: white;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.24);
+  pointer-events: none;
+  animation: info-tip-in 0.12s ease-out;
+}
+
+.info-tip-bubble strong {
+  color: #cbe3ff;
+}
+
+@keyframes info-tip-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

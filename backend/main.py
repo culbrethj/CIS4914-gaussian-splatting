@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 HERE = Path(__file__).resolve().parent
@@ -25,6 +25,11 @@ ALLOWED_PIPELINE_STEPS = {"prepare", "sfm", "opensplat", "all"}
 #   opensplat - runs locally against the bundled binary (CPU or CUDA)
 #   fastergs  - sends the job to HiPerGator and trains there
 ALLOWED_BACKENDS = {"opensplat", "fastergs"}
+# SfM methods. colmap is the default (traditional + reliable); vggt is the
+# feed-forward neural network alternative that runs on a GPU in under a
+# minute. Keep the enum small so the frontend can map directly.
+ALLOWED_SFM_METHODS = {"colmap", "vggt"}
+DEFAULT_SFM_METHOD = "colmap"
 ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 DEFAULT_DUPLICATE_THRESHOLD = 1.5
 DEFAULT_BLUR_THRESHOLD = 20.0
@@ -50,6 +55,18 @@ app.mount("/datasets", StaticFiles(directory=str(datasets_dir)), name="datasets"
 JOB_QUEUES: dict[str, asyncio.Queue[str]] = {}
 JOB_TASKS: dict[str, asyncio.Task] = {}
 JOB_META: dict[str, dict] = {}
+
+# Rolling buffer of the last N log lines per job. The WebSocket stream is
+# ephemeral - once a line is consumed it's gone - so if the user
+# navigates to another page and back, the LiveDemos component remounts
+# with an empty logs array and the progress / stage cards go blank until
+# new lines trickle in. The buffer lets the frontend replay recent
+# history via GET /api/jobs/{id}/logs before the WS reconnects, so
+# progress state survives navigation without extra server load.
+from collections import deque  # noqa: E402
+
+JOB_LOG_BUFFERS: dict[str, deque[str]] = {}
+JOB_LOG_BUFFER_MAX = 1500
 
 
 def _utcnow_iso() -> str:
@@ -137,10 +154,23 @@ def _parse_run_payload(payload: dict) -> dict:
     backend = payload.get("backend", DEFAULT_PIPELINE_BACKEND)
     if backend not in ALLOWED_BACKENDS:
         raise HTTPException(status_code=400, detail=f"backend must be one of {sorted(ALLOWED_BACKENDS)}")
+    # sfm_method is a separate axis from the training backend. Most users
+    # will leave this at "colmap"; opt into "vggt" for near-instant SfM.
+    sfm_method = payload.get("sfm_method", DEFAULT_SFM_METHOD)
+    if sfm_method not in ALLOWED_SFM_METHODS:
+        raise HTTPException(status_code=400, detail=f"sfm_method must be one of {sorted(ALLOWED_SFM_METHODS)}")
+
+    # "Use existing dataset" flag. When set, the pipeline skips video
+    # extraction and runs straight against backend/datasets/<name>/images.
+    # Lets the frontend iterate on training / SfM settings without re-
+    # uploading the source video every time.
+    use_existing_frames = bool(payload.get("use_existing_frames", False))
 
     return {
         "dataset": dataset_name,
         "backend": backend,
+        "sfm_method": sfm_method,
+        "use_existing_frames": use_existing_frames,
         "iters": _coerce_int("iters", payload.get("iters", 1000), minimum=50, maximum=100000),
         "only": only,
         "duplicate_threshold": _coerce_float(
@@ -168,7 +198,68 @@ def _parse_run_payload(payload: dict) -> dict:
             minimum=320,
             maximum=4096,
         ),
+        # Experiment / Shorter-Splatting fields. All optional - absent keys
+        # just mean the technique is off. Validated by _coerce_int/_float so
+        # bad input gets rejected with a 400 before we launch a subprocess.
+        "seed": (
+            _coerce_int("seed", payload["seed"], minimum=0, maximum=2**31 - 1)
+            if "seed" in payload and payload["seed"] is not None else None
+        ),
+        "shortgs_scale_reset_every": (
+            _coerce_int(
+                "shortgs_scale_reset_every",
+                payload["shortgs_scale_reset_every"],
+                minimum=1, maximum=1_000_000,
+            )
+            if "shortgs_scale_reset_every" in payload else 0
+        ),
+        "shortgs_scale_reset_factor": (
+            _coerce_float(
+                "shortgs_scale_reset_factor",
+                payload["shortgs_scale_reset_factor"],
+                minimum=0.01, maximum=1.0,
+            )
+            if "shortgs_scale_reset_factor" in payload else 1.0
+        ),
+        "shortgs_entropy_weight": (
+            _coerce_float(
+                "shortgs_entropy_weight",
+                payload["shortgs_entropy_weight"],
+                minimum=0.0, maximum=10.0,
+            )
+            if "shortgs_entropy_weight" in payload else 0.0
+        ),
+        "shortgs_progressive_resolution": _validate_progressive_schedule(
+            payload.get("shortgs_progressive_resolution", "")
+        ),
     }
+
+
+def _validate_progressive_schedule(value) -> str:
+    # Expects a string like "0:0.25,5000:0.5,10000:1.0" or empty. We don't
+    # trust the client format - reparse and re-stringify so garbage strings
+    # (e.g. shell injection, extra whitespace) can't slip through to SLURM.
+    if value is None or value == "":
+        return ""
+    if not isinstance(value, str):
+        raise HTTPException(status_code=400, detail="shortgs_progressive_resolution must be a string")
+    value = value.strip()
+    if not value:
+        return ""
+    parts = []
+    for pair in value.split(","):
+        if ":" not in pair:
+            raise HTTPException(status_code=400, detail="progressive schedule entries must be 'iter:scale'")
+        i_str, s_str = pair.split(":", 1)
+        try:
+            iteration = int(i_str.strip())
+            scale = float(s_str.strip())
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"invalid progressive schedule entry {pair!r}") from exc
+        if iteration < 0 or scale <= 0 or scale > 1:
+            raise HTTPException(status_code=400, detail="progressive schedule iter must be >=0 and scale in (0, 1]")
+        parts.append(f"{iteration}:{scale}")
+    return ",".join(parts)
 
 
 def _to_datasets_url(path: Path) -> str | None:
@@ -291,6 +382,14 @@ def _cleanup_job_state_if_safe(job_id: str):
         logger.info("Cleaned up completed job state job_id=%s", job_id)
 
 
+def _append_to_job_log_buffer(job_id: str, text: str) -> None:
+    buf = JOB_LOG_BUFFERS.get(job_id)
+    if buf is None:
+        buf = deque(maxlen=JOB_LOG_BUFFER_MAX)
+        JOB_LOG_BUFFERS[job_id] = buf
+    buf.append(text)
+
+
 async def _read_process_and_stream(proc: asyncio.subprocess.Process, queue: asyncio.Queue, job_id: str):
     try:
         while True:
@@ -306,6 +405,7 @@ async def _read_process_and_stream(proc: asyncio.subprocess.Process, queue: asyn
                 stage_changed = _update_job_stage_from_line(job_id, text)
                 if stage_changed or meta["_line_count"] % 25 == 0:
                     _refresh_job_preview(job_id)
+            _append_to_job_log_buffer(job_id, text)
             await queue.put(text)
 
         await proc.wait()
@@ -314,7 +414,9 @@ async def _read_process_and_stream(proc: asyncio.subprocess.Process, queue: asyn
         JOB_META[job_id]["finished_at"] = _utcnow_iso()
         JOB_META[job_id]["stage"] = "completed" if proc.returncode == 0 else "failed"
         _refresh_job_preview(job_id)
-        await queue.put(f"<<DONE:{proc.returncode}>>")
+        done_line = f"<<DONE:{proc.returncode}>>"
+        _append_to_job_log_buffer(job_id, done_line)
+        await queue.put(done_line)
         _cleanup_job_state_if_safe(job_id)
     except Exception as exc:
         JOB_META[job_id]["status"] = "failed"
@@ -322,7 +424,9 @@ async def _read_process_and_stream(proc: asyncio.subprocess.Process, queue: asyn
         JOB_META[job_id]["finished_at"] = _utcnow_iso()
         JOB_META[job_id]["error"] = str(exc)
         _refresh_job_preview(job_id)
-        await queue.put(f"<<ERROR:{str(exc)}>>")
+        error_line = f"<<ERROR:{str(exc)}>>"
+        _append_to_job_log_buffer(job_id, error_line)
+        await queue.put(error_line)
         _cleanup_job_state_if_safe(job_id)
 
 
@@ -375,7 +479,20 @@ async def run_pipeline(payload: dict = Body(...)):
     """
     try:
         params = _parse_run_payload(payload)
-        video_path = _pick_dataset_video_file(params["dataset"])
+        # "Existing dataset" runs reuse backend/datasets/<name>/images/ and
+        # skip the frame-extraction step. The dataset must already be
+        # preprocessed (enforced here so we fail fast instead of crashing
+        # inside the subprocess). Regular runs need a stored video file.
+        if params["use_existing_frames"]:
+            ds_images = _dataset_dir(params["dataset"]) / "images"
+            if not ds_images.is_dir() or not any(ds_images.iterdir()):
+                raise HTTPException(
+                    status_code=400,
+                    detail="use_existing_frames was set but dataset has no preprocessed images on disk",
+                )
+            video_path = None
+        else:
+            video_path = _pick_dataset_video_file(params["dataset"])
 
         pipeline_path = HERE / "scripts/pipeline.py"
         if not pipeline_path.exists():
@@ -386,8 +503,6 @@ async def run_pipeline(payload: dict = Body(...)):
                 sys.executable,
                 str(pipeline_path),
                 params["dataset"],
-                "--video",
-                str(video_path),
                 "--iters",
                 str(params["iters"]),
                 "--only",
@@ -403,6 +518,10 @@ async def run_pipeline(payload: dict = Body(...)):
                 "--max-width",
                 str(params["max_width"]),
             ]
+            if video_path is not None:
+                cmd += ["--video", str(video_path)]
+            if params["use_existing_frames"]:
+                cmd.append("--use-existing-frames")
         else:
             # Faster-GS path. The orchestrator script handles the local
             # preprocess + remote SfM/undistort + remote training + fetch.
@@ -415,8 +534,6 @@ async def run_pipeline(payload: dict = Body(...)):
                 sys.executable,
                 str(fastergs_pipeline_path),
                 params["dataset"],
-                "--video",
-                str(video_path),
                 "--iters",
                 str(params["iters"]),
                 "--duplicate-threshold",
@@ -438,8 +555,28 @@ async def run_pipeline(payload: dict = Body(...)):
                 "--prepare-partition",
                 os.getenv("FASTERGS_PREP_PARTITION", "hpg-default"),
                 "--train-partition",
-                os.getenv("FASTERGS_TRAIN_PARTITION", "hpg-b200"),
+                os.getenv("FASTERGS_TRAIN_PARTITION", "hpg-turin"),
+                "--sfm-method",
+                params.get("sfm_method", DEFAULT_SFM_METHOD),
             ]
+            if video_path is not None:
+                cmd += ["--video", str(video_path)]
+            if params["use_existing_frames"]:
+                cmd.append("--use-existing-frames")
+            # Optional experiment flags. Only appended when set so absent
+            # flags match the CLI "technique off" default. Seed is always
+            # appended when present so run_tag + metrics_summary record it.
+            if params.get("seed") is not None:
+                cmd += ["--seed", str(params["seed"])]
+            if params.get("shortgs_scale_reset_every"):
+                cmd += [
+                    "--shortgs-scale-reset-every", str(params["shortgs_scale_reset_every"]),
+                    "--shortgs-scale-reset-factor", str(params["shortgs_scale_reset_factor"]),
+                ]
+            if params.get("shortgs_entropy_weight"):
+                cmd += ["--shortgs-entropy-weight", str(params["shortgs_entropy_weight"])]
+            if params.get("shortgs_progressive_resolution"):
+                cmd += ["--shortgs-progressive-resolution", params["shortgs_progressive_resolution"]]
 
         job_id = uuid.uuid4().hex
         queue: asyncio.Queue = asyncio.Queue()
@@ -509,6 +646,22 @@ async def get_latest_active_job():
     return JSONResponse(public_meta)
 
 
+@app.get("/api/jobs/{job_id}/logs")
+async def get_job_logs(job_id: str):
+    """
+    Replay the rolling log buffer for a job. Used by the frontend on
+    mount to rehydrate progress / stage state after the user navigates
+    away and back. Returns [] if the job never had any output or was
+    already cleaned up.
+    """
+    meta = JOB_META.get(job_id)
+    if meta is None and job_id not in JOB_LOG_BUFFERS:
+        raise HTTPException(status_code=404, detail="unknown job")
+    buf = JOB_LOG_BUFFERS.get(job_id)
+    lines = list(buf) if buf is not None else []
+    return JSONResponse({"job_id": job_id, "lines": lines, "truncated": len(lines) >= JOB_LOG_BUFFER_MAX})
+
+
 @app.websocket("/api/ws/{job_id}")
 async def websocket_stream(websocket: WebSocket, job_id: str):
     """
@@ -540,21 +693,230 @@ async def websocket_stream(websocket: WebSocket, job_id: str):
 @app.get("/api/datasets")
 async def list_datasets():
     """
-    Return JSON list of datasets found under backend/datasets.
-    For each dataset return its name and whether a .splat file exists at the dataset root.
+    Return JSON list of datasets found under backend/datasets. Each
+    entry carries enough status for LiveDemos to decide whether the
+    dataset is usable in "existing dataset" mode without re-uploading
+    a video:
+
+      name            folder name under backend/datasets/
+      has_splat       final .splat file sitting at the dataset root
+      splat_path      URL path to that splat (when present)
+      has_images      preprocessed images/ exists with >= 8 files
+                      (same floor the trainer enforces)
+      has_raw_video   a video file was previously uploaded (lets the
+                      frontend know a re-extract is still an option)
+      has_sfm         a SfM fingerprint (local or remote) is on disk,
+                      so a rerun with matching settings will skip SfM
+      run_count       number of training runs we've fetched back for
+                      this dataset (counts metrics/ subdirs)
     """
     out = []
     ds_root = datasets_dir.resolve()
     for d in sorted(ds_root.iterdir()):
         if not d.is_dir() or d.parent != ds_root:
             continue
-        entry = {"name": d.name, "has_splat": False, "splat_path": None}
+
+        has_images = False
+        try:
+            images_dir = d / "images"
+            if images_dir.is_dir():
+                # Match the preflight / trainer threshold so the UI
+                # doesn't advertise datasets the training step would
+                # immediately reject.
+                image_count = sum(1 for p in images_dir.iterdir() if p.is_file())
+                has_images = image_count >= 8
+        except OSError:
+            has_images = False
+
+        has_raw_video = False
+        try:
+            video_dir = d / "video"
+            if video_dir.is_dir():
+                has_raw_video = any(
+                    p.is_file() and p.suffix.lower() in ALLOWED_VIDEO_EXTS
+                    for p in video_dir.iterdir()
+                )
+        except OSError:
+            has_raw_video = False
+
+        has_sfm = any(
+            (d / name).is_file()
+            for name in ("remote_sfm_fingerprint.json", "sfm_fingerprint.json", "prep_fingerprint.json")
+        )
+
+        run_count = 0
+        metrics_dir = d / "metrics"
+        if metrics_dir.is_dir():
+            try:
+                run_count = sum(1 for p in metrics_dir.iterdir() if p.is_dir())
+            except OSError:
+                run_count = 0
+
+        entry = {
+            "name": d.name,
+            "has_splat": False,
+            "splat_path": None,
+            "has_images": has_images,
+            "has_raw_video": has_raw_video,
+            "has_sfm": has_sfm,
+            "run_count": run_count,
+        }
         preferred = _find_root_splat(d)
         if preferred:
             entry["has_splat"] = True
             entry["splat_path"] = f"/datasets/{d.name}/{preferred.name}"
         out.append(entry)
     return JSONResponse(out)
+
+
+@app.get("/api/datasets/{name}/prep-status")
+async def get_dataset_prep_status(name: str):
+    """
+    Tell the frontend whether this dataset has cached preprocess + SfM
+    output that a new run with matching settings would reuse. Used to
+    show a "cache hit = faster rerun" hint in LiveDemos.
+
+    Returns:
+      {
+        has_prep_fingerprint: bool,
+        has_sfm_fingerprint: bool,
+        has_remote_sfm_fingerprint: bool,
+        fingerprint: <fields> | null,
+      }
+    """
+    d = _dataset_dir(name)
+    if not d.exists() or not d.is_dir():
+        raise HTTPException(status_code=404, detail="dataset not found")
+
+    def _read(path: Path):
+        try:
+            if path.is_file():
+                return json.loads(path.read_text())
+        except Exception:
+            return None
+        return None
+
+    prep = _read(d / "prep_fingerprint.json")
+    sfm = _read(d / "sfm_fingerprint.json")
+    remote = _read(d / "remote_sfm_fingerprint.json")
+    # Expose the "prep" fingerprint if present; remote takes precedence
+    # since that's what matters for the Faster-GS path most users hit.
+    primary = remote or prep or sfm
+    preview = None
+    if primary:
+        preview = {
+            k: primary.get(k)
+            for k in ("fps", "downscale", "blur_threshold", "duplicate_threshold", "max_width")
+        }
+    return JSONResponse({
+        "has_prep_fingerprint": prep is not None,
+        "has_sfm_fingerprint": sfm is not None,
+        "has_remote_sfm_fingerprint": remote is not None,
+        "fingerprint": preview,
+    })
+
+
+@app.get("/api/datasets/{name}/runs")
+async def list_dataset_runs(name: str):
+    """
+    Enumerate every training run for a dataset so the Gallery + viewer
+    dropdowns can group runs under their parent dataset. A "run" here is
+    one of:
+      - A metrics/<run_tag>/ subdir with a matching .splat fetched back
+        to backend/hipergator/gs_final/<run_tag>.splat
+      - A dataset-root splat (e.g. banana/banana.splat) that isn't a
+        copy of any HPG run — treated as a "showcase" single-run entry
+        so pre-committed demo scenes still appear in the picker.
+    Runs are sorted oldest-first and assigned monotonic run_number
+    values (1, 2, 3...) within their dataset so the UI can display
+    "Run N" labels consistently across Gallery, Reports, and LiveDemos.
+    """
+    d = _dataset_dir(name)
+    if not d.exists() or not d.is_dir():
+        raise HTTPException(status_code=404, detail="dataset not found")
+
+    runs = []
+    metrics_root = d / "metrics"
+    hpg_splat_tags = set()
+
+    if metrics_root.is_dir():
+        for entry in metrics_root.iterdir():
+            if not entry.is_dir():
+                continue
+            run_tag = entry.name
+            summary = None
+            summary_path = entry / "metrics_summary.json"
+            if summary_path.is_file():
+                try:
+                    summary = json.loads(summary_path.read_text())
+                except Exception:
+                    summary = None
+            # Splat is expected under backend/hipergator/gs_final/<tag>.splat.
+            # If it's missing (fetch failed or got cleaned up) we still list
+            # the run so the user can see its metrics, just with no splat to
+            # view.
+            splat_filename = f"{run_tag}.splat"
+            splat_path = None
+            # Real training runs land under backend/hipergator/gs_final/
+            # per fastergs_pipeline.fetch_dir. The legacy showcase splats
+            # sit at backend/hipergator/ root. Check the gs_final subdir
+            # first so we route to the per-run file, then fall back to
+            # the root only if someone manually placed it there.
+            gs_final_splat = hpg_dir / "gs_final" / splat_filename
+            root_splat = hpg_dir / splat_filename
+            if gs_final_splat.is_file():
+                splat_path = f"/api/hpg/gs_final/{splat_filename}/splat"
+                hpg_splat_tags.add(splat_filename)
+            elif root_splat.is_file():
+                splat_path = f"/api/hpg/{splat_filename}/splat"
+                hpg_splat_tags.add(splat_filename)
+            created_at_epoch = None
+            if isinstance(summary, dict) and summary.get("created_at_epoch") is not None:
+                try:
+                    created_at_epoch = float(summary["created_at_epoch"])
+                except (TypeError, ValueError):
+                    created_at_epoch = None
+            if created_at_epoch is None:
+                # Fallback to the metrics dir's own mtime if the summary
+                # didn't carry a timestamp. Keeps run ordering stable.
+                try:
+                    created_at_epoch = entry.stat().st_mtime
+                except OSError:
+                    created_at_epoch = 0.0
+            runs.append({
+                "run_tag": run_tag,
+                "splat_path": splat_path,
+                "splat_filename": splat_filename if splat_path else None,
+                "metrics_summary": summary,
+                "created_at_epoch": created_at_epoch,
+                "is_showcase": False,
+            })
+
+    # Sort oldest-first so run_number increments chronologically.
+    runs.sort(key=lambda r: r["created_at_epoch"] or 0.0)
+    for idx, r in enumerate(runs, start=1):
+        r["run_number"] = idx
+        r["display_label"] = f"Run {idx}"
+
+    # Dataset-root splat (e.g. banana/banana.splat) that doesn't already
+    # correspond to one of the HPG runs above. Shown as a single
+    # "showcase" entry so pre-built demo scenes still appear in the
+    # picker. If the root splat IS a copy of a training run, we don't
+    # double-list it.
+    preferred = _find_root_splat(d)
+    if preferred and preferred.name not in hpg_splat_tags:
+        runs.append({
+            "run_tag": None,
+            "run_number": None,
+            "display_label": "Showcase",
+            "splat_path": f"/api/datasets/{name}/splat",
+            "splat_filename": preferred.name,
+            "metrics_summary": None,
+            "created_at_epoch": None,
+            "is_showcase": True,
+        })
+
+    return JSONResponse(runs)
 
 
 @app.get("/api/datasets/{name}/splat")
@@ -607,12 +969,33 @@ async def get_hpg_splat(filename: str):
     return FileResponse(path=str(p), media_type="application/octet-stream", filename=p.name)
 
 
+@app.get("/api/hpg/gs_final/{filename}/splat")
+async def get_hpg_gs_final_splat(filename: str):
+    """
+    Serve a per-run splat fetched back from HPG. Runs land under
+    backend/hipergator/gs_final/<run_tag>.splat via fastergs_pipeline.
+    Kept as its own route (rather than folded into /api/hpg/{name}/splat)
+    so the path prefix reflects the directory and matches the layout
+    used by the /runs endpoint.
+    """
+    safe_name = Path(filename).name
+    if safe_name != filename or not safe_name.lower().endswith(".splat"):
+        raise HTTPException(status_code=400, detail="invalid splat filename")
+    gs_final_root = (hpg_dir / "gs_final").resolve()
+    p = (gs_final_root / safe_name).resolve()
+    if p.parent != gs_final_root or not p.exists() or not p.is_file():
+        raise HTTPException(status_code=404, detail="splat not found")
+    return FileResponse(path=str(p), media_type="application/octet-stream", filename=p.name)
+
+
 # --- Metrics endpoints ---
 # The frontend Reports page reads these. Every route tolerates missing files
 # (returns 404) rather than crashing, so a dataset with no runs yet is fine.
 
 ALLOWED_PLOT_NAMES = {
     "psnr", "ssim", "lpips", "loss", "num_gaussians", "splats_per_frame", "wall_seconds",
+    # Shorter-Splatting validation plots - time-domain curves + PLY histograms
+    "psnr_vs_wall_seconds", "scale_hist", "opacity_hist",
 }
 
 
