@@ -15,6 +15,7 @@ import {
 } from "recharts";
 import RunDetailsCard from "../components/RunDetailsCard";
 import { formatRunDisplay, parseRunTag, computeRunNumberMap } from "../utils/runDisplay";
+import { formatMetric, formatNumber } from "../utils/reportsFormat";
 import "./Reports.css";
 
 // The Reports page lets you pick a dataset, pick one or more training runs,
@@ -90,29 +91,6 @@ async function fetchJson(url) {
   return response.json();
 }
 
-function formatNumber(value, digits = 3) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "-";
-  if (Math.abs(n) >= 1000) {
-    return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-  }
-  return n.toFixed(digits);
-}
-
-// Shortened axis tick formatter. Raw bin midpoints like 0.048191592288203536
-// steal all the space; 3 decimals is plenty for histogram reading.
-function formatAxisTick(value) {
-  if (value === null || value === undefined) return "";
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "";
-  if (Math.abs(n) >= 1000) {
-    return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-  }
-  if (Math.abs(n) >= 10) return n.toFixed(1);
-  return n.toFixed(3);
-}
-
 // Display name for a run (see utils/runDisplay.js for the single source of
 // truth). Kept as a thin alias so the hundreds of call sites below don't
 // have to be rewritten.
@@ -120,43 +98,8 @@ function shortLabelForTag(tag) {
   return formatRunDisplay(tag);
 }
 
-// Per-metric value formatter used inside the chart tooltip. The metric
-// key comes from the chart name (psnr/ssim/lpips/loss/...) so we can
-// render each value in the unit users expect without every call site
-// duplicating the same if/else ladder.
-function formatMetricValue(metricKey, value) {
-  if (value === null || value === undefined) return "-";
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "-";
-  switch (metricKey) {
-    case "psnr":
-      return `${n.toFixed(2)} dB`;
-    case "ssim":
-    case "lpips":
-      return n.toFixed(3);
-    case "loss":
-      // Loss values live in the 0.001–0.3 range; 4 decimals lets users
-      // see small changes in the tail of training without the number
-      // collapsing to "0.00".
-      return n.toFixed(4);
-    case "num_gaussians":
-    case "splats_per_frame":
-      return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-    case "wall_seconds": {
-      const secs = Math.round(n);
-      if (secs < 60) return `${secs}s`;
-      const m = Math.floor(secs / 60);
-      const s = secs % 60;
-      return s === 0 ? `${m}m` : `${m}m ${s}s`;
-    }
-    default:
-      // Plain numeric fallback: commas for big, 3 decimals for small.
-      if (Math.abs(n) >= 1000) {
-        return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-      }
-      return n.toFixed(3);
-  }
-}
+const formatAxisTick = (value) => formatMetric(value, undefined, { axis: true });
+const formatMetricValue = (metricKey, value) => formatMetric(value, metricKey);
 
 // Custom styled tooltip card for the line charts. Recharts' default
 // tooltip is text-heavy and doesn't let us format per-metric values
