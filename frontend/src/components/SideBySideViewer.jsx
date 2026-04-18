@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Splat, OrbitControls } from "@react-three/drei";
+import useBlobUrl from "../utils/useBlobUrl";
 import "./SideBySideViewer.css";
 
 // Gallery comparison viewer. Renders two splats in side-by-side canvases
@@ -66,44 +67,6 @@ export default function SideBySideViewer({
       </div>
     </div>
   );
-}
-
-// Loads a .splat from an API path and returns a blob: URL that the drei
-// <Splat> component can consume. Same pattern GaussViewer uses for the
-// single-view case.
-function useBlobUrl(apiPath) {
-  const [url, setUrl] = useState(null);
-  useEffect(() => {
-    let cancelled = false;
-    let currentUrl = null;
-    if (!apiPath) {
-      setUrl(null);
-      return;
-    }
-    (async () => {
-      try {
-        const res = await fetch(apiPath);
-        if (!res.ok) throw new Error(`${res.status}`);
-        const blob = await res.blob();
-        if (cancelled) return;
-        currentUrl = URL.createObjectURL(blob);
-        setUrl(currentUrl);
-      } catch {
-        if (!cancelled) setUrl(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (currentUrl) {
-        try {
-          URL.revokeObjectURL(currentUrl);
-        } catch {
-          /* ignore */
-        }
-      }
-    };
-  }, [apiPath]);
-  return url;
 }
 
 // Writes the current camera transform into a shared mutable capsule each
