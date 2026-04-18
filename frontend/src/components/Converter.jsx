@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import * as SPLAT from "gsplat";
 
-export default function GaussViewer() {
+export default function Converter() {
     const [selectedFile, setSelectedFile] = useState(null);
 
     const handleFileChange = (e) => {
@@ -17,8 +17,9 @@ export default function GaussViewer() {
             const scene = new SPLAT.Scene()
             await SPLAT.PLYLoader.LoadFromFileAsync(selectedFile, scene);
             scene.saveToFile(selectedFile.name.replace(".ply", ".splat"));
-        } catch {
-            alert("Error converting file!");
+        } catch (error) {
+            console.error("PLY to SPLAT conversion error:", error);
+            alert("Conversion failed: " + error.message);
         }
     };
 
