@@ -433,7 +433,7 @@ def main():
         log(f"Submitted SLURM job id: {job_id}")
 
     if args.no_wait:
-        log(f"[ok] VGGT SfM submission complete (--no-wait)")
+        log("[ok] VGGT SfM submission complete (--no-wait)")
         log(f"Track with: squeue -j {job_id}")
         log(f"Remote logs: {remote_out} {remote_err}")
         return

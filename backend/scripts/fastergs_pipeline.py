@@ -1,17 +1,25 @@
 """
-Local orchestrator for the Faster-GS backend.
+Local orchestrator for the Faster-GS (and OpenSplat) backends.
 
-Ties the local preprocess step to the two remote HiPerGator stages:
-preprocess + rsync -> SfM/undistort on HPG -> GPU training on HPG -> fetch
-+ publish the resulting .splat back to ``backend/datasets/<name>/splat.splat``
-(for the frontend viewer) and ``backend/hipergator/<name>_fastergs_latest.splat``
-(for the Gallery page).
+Ties the local preprocess step to the remote HiPerGator stages:
+preprocess + rsync -> SfM on HPG (COLMAP or VGGT, picked via
+``--sfm-method``) -> GPU training on HPG (``--backend fastergs``
+or ``opensplat``) -> fetch + publish the resulting .splat back to
+``backend/datasets/<name>/splat.splat`` (for the frontend viewer) and
+``backend/hipergator/<name>_fastergs_latest.splat`` (for the Gallery
+page). COLMAP runs on CPU + undistorts; VGGT is a GPU feed-forward
+transformer and emits PINHOLE cameras directly so undistort is
+skipped.
 
-Forwards the Shorter-Splatting paper flags (``--shortgs-*``) through as
-``SHORTGS_*`` environment variables for the SLURM training job; the patch
-script on the remote side reads them from ``os.environ``.
+Forwards the Shorter-Splatting paper flags (``--shortgs-*``) through
+as ``SHORTGS_*`` environment variables for the SLURM training job; the
+patch script on the remote side reads them from ``os.environ``. Also
+exposes ``--use-fastergs-adam`` to flip on just the fused-Adam kernel
+without the (currently-broken-on-sm_89/sm_100) custom rasterizer.
 
-Entry point: ``python scripts/fastergs_pipeline.py <dataset> --video ...``.
+Entry points:
+  python scripts/fastergs_pipeline.py <dataset> --video <path>
+  python scripts/fastergs_pipeline.py <dataset> --use-existing-frames
 """
 
 from __future__ import annotations

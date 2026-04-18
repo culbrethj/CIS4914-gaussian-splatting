@@ -13,10 +13,15 @@ Config YAML shape (see ``experiment_matrix.yaml``)::
   base_iterations: 10000
   partition: hpg-turin
   configs:
-    - name: baseline
+    - name: stock_baseline
       flags: {}
-    - name: scale_reset
+    - name: fastergs_adam           # stock rasterizer + FasterGS fused Adam
+      flags: {use_fastergs_adam: true}
+    - name: scale_reset             # shortgs paper technique
       flags: {shortgs_scale_reset_every: 1000, shortgs_scale_reset_factor: 0.9}
+    - name: opensplat               # separate backend; shortgs flags ignored
+      backend: opensplat
+      flags: {}
 
 Serial execution; each pipeline call blocks until HPG completes. Use
 ``--dry-run`` to print the invocation for every combo without running.
