@@ -16,6 +16,13 @@ import shlex
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
+
+try:
+    from .hpg_utils import common_ssh_options, log
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from hpg_utils import common_ssh_options, log
 
 # Sets up the gs_final workspace tree on HPG and rsyncs cleaned images into
 # it. This is an HPG-to-HPG helper (both source and dest live on /blue), used
@@ -31,33 +38,12 @@ DEFAULT_SOURCE_DATASETS_ROOT = os.environ.get(
 )
 
 
-def log(message: str):
-    stamp = datetime.now().strftime("%H:%M:%S")
-    print(f"[{stamp}] {message}", flush=True)
-
-
 def run_cmd(cmd: list[str], *, dry_run: bool):
     printable = " ".join(shlex.quote(part) for part in cmd)
     log(f"[cmd] {printable}")
     if dry_run:
         return
     subprocess.run(cmd, check=True)
-
-
-def common_ssh_options(*, use_mux: bool, control_persist: str) -> list[str]:
-    opts: list[str] = []
-    if use_mux:
-        opts.extend(
-            [
-                "-o",
-                "ControlMaster=auto",
-                "-o",
-                f"ControlPersist={control_persist}",
-                "-o",
-                "ControlPath=/tmp/ssh_mux_%r_%h_%p",
-            ]
-        )
-    return opts
 
 
 def main():

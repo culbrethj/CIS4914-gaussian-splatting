@@ -41,6 +41,7 @@ try:
         load_fingerprint,
         save_fingerprint,
     )
+    from .hpg_utils import common_ssh_options, log
 except ImportError:
     # Running as a script (not as a package); add scripts dir to sys.path.
     import sys as _sys
@@ -53,16 +54,12 @@ except ImportError:
         load_fingerprint,
         save_fingerprint,
     )
+    from hpg_utils import common_ssh_options, log
 import shutil
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-
-
-def log(message: str):
-    stamp = datetime.now().strftime("%H:%M:%S")
-    print(f"[{stamp}] {message}", flush=True)
 
 
 def run_cmd(cmd: list[str], extra_env: dict[str, str] | None = None):
@@ -73,24 +70,6 @@ def run_cmd(cmd: list[str], extra_env: dict[str, str] | None = None):
         env = os.environ.copy()
         env.update(extra_env)
     subprocess.run(cmd, check=True, env=env)
-
-
-def common_ssh_options(*, use_mux: bool, control_persist: str) -> list[str]:
-    # SSH multiplexing reuses one TCP connection for every ssh/rsync we run during a job.
-    # Without this we'd re-auth on every step and HPG's login nodes get grumpy about that.
-    opts: list[str] = []
-    if use_mux:
-        opts.extend(
-            [
-                "-o",
-                "ControlMaster=auto",
-                "-o",
-                f"ControlPersist={control_persist}",
-                "-o",
-                "ControlPath=/tmp/ssh_mux_%r_%h_%p",
-            ]
-        )
-    return opts
 
 
 def rsync_ssh_option(port: int, identity_file: str | None, ssh_opts: list[str]) -> str:

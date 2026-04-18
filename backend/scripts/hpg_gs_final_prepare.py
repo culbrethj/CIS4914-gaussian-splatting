@@ -26,6 +26,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from .hpg_utils import common_ssh_options, format_cmd, log
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from hpg_utils import common_ssh_options, format_cmd, log
+
 # HPG workspace defaults. FASTERGS_REMOTE_ROOT env var overrides the root;
 # all derived paths follow from it so teammates can point at their own
 # /blue space with a single export.
@@ -36,21 +42,8 @@ DEFAULT_COLMAP_CONTAINER = os.environ.get(
 DEFAULT_PREFLIGHT_SCRIPT = f"{DEFAULT_REMOTE_ROOT}/src/fastergs_preflight.py"
 
 
-def log(message: str):
-    stamp = datetime.now().strftime("%H:%M:%S")
-    print(f"[{stamp}] {message}", flush=True)
-
-
-def _format_cmd(cmd: list[str]) -> str:
-    printable = " ".join(shlex.quote(part) for part in cmd)
-    compact = " ".join(printable.replace("\n", " ").split())
-    if len(compact) > 260:
-        return compact[:257] + "..."
-    return compact
-
-
 def run_cmd(cmd: list[str], *, dry_run: bool = False):
-    log(f"[cmd] {_format_cmd(cmd)}")
+    log(f"[cmd] {format_cmd(cmd)}")
     if dry_run:
         return
     subprocess.run(cmd, check=True)
@@ -58,7 +51,7 @@ def run_cmd(cmd: list[str], *, dry_run: bool = False):
 
 def run_cmd_capture(cmd: list[str], *, dry_run: bool = False, log_cmd: bool = True) -> str:
     if log_cmd:
-        log(f"[cmd] {_format_cmd(cmd)}")
+        log(f"[cmd] {format_cmd(cmd)}")
     if dry_run:
         return ""
     proc = subprocess.run(cmd, check=True, text=True, capture_output=True)
@@ -67,22 +60,6 @@ def run_cmd_capture(cmd: list[str], *, dry_run: bool = False, log_cmd: bool = Tr
 
 def bash_lc(command: str) -> str:
     return f"bash -lc {shlex.quote(command)}"
-
-
-def common_ssh_options(*, use_mux: bool, control_persist: str) -> list[str]:
-    opts: list[str] = []
-    if use_mux:
-        opts.extend(
-            [
-                "-o",
-                "ControlMaster=auto",
-                "-o",
-                f"ControlPersist={control_persist}",
-                "-o",
-                "ControlPath=/tmp/ssh_mux_%r_%h_%p",
-            ]
-        )
-    return opts
 
 
 def parse_job_id(sbatch_output: str) -> str:
