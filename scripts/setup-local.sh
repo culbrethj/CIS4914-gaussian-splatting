@@ -73,7 +73,16 @@ done
 
 if [ -z "${PYTHON_BIN}" ]; then
   CURRENT="$(python3 --version 2>/dev/null || echo 'not installed')"
-  fail "Need Python 3.10–3.13 on PATH. Found: ${CURRENT}. Install a supported version (pyenv, brew install python@3.12, or python.org) and re-run. Pinned deps (open3d, numpy, pandas) don't yet ship wheels for 3.14+."
+  warn "Need Python 3.10-3.13 on PATH. Found: ${CURRENT}."
+  warn "Pinned deps (open3d, numpy, pandas) don't yet ship wheels for 3.14+."
+  echo ""
+  echo "Install Python 3.12 using one of:"
+  echo "  brew install python@3.12                          # macOS Homebrew"
+  echo "  pyenv install 3.12.7 && pyenv local 3.12.7        # pyenv (Mac/Linux)"
+  echo "  apt install python3.12                            # Linux (or deadsnakes PPA)"
+  echo ""
+  echo "Then re-run: ./scripts/setup-local.sh"
+  exit 1
 fi
 info "python: $(${PYTHON_BIN} --version) -> $(command -v ${PYTHON_BIN})"
 
@@ -149,6 +158,17 @@ step "Checking for 'hpg' SSH alias"
 SSH_CONFIG="${HOME}/.ssh/config"
 if [ -f "${SSH_CONFIG}" ] && grep -qE '^\s*Host\s+.*\bhpg\b' "${SSH_CONFIG}"; then
   info "Found 'hpg' Host entry in ${SSH_CONFIG}"
+  # Non-blocking reachability probe. BatchMode rules out Duo/password
+  # prompts; if the mux socket is live the call is instant, otherwise
+  # it fails fast without hanging on 2FA.
+  if timeout 10 ssh -o BatchMode=yes -o ConnectTimeout=10 hpg "echo ok" >/dev/null 2>&1; then
+    info "hpg SSH alias reachable."
+  else
+    warn "hpg SSH alias configured but not reachable right now."
+    info "Training pipeline (Faster-GS) will be unavailable until SSH works."
+    info "Run 'ssh hpg' interactively to complete Duo 2FA and warm the mux."
+    info "OpenSplat backend + pre-bundled Gallery splats work without HPG."
+  fi
 else
   warn "No 'hpg' SSH alias found in ${SSH_CONFIG}"
   cat <<'HINT'
