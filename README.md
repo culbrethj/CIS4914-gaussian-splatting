@@ -1,5 +1,10 @@
 # CIS4914 Project: End-to-end Gaussian Splatting Implementation
 
+> **Setting this up for the first time?** See **[SETUP.md](SETUP.md)** for the
+> full cross-platform walkthrough (Mac / Linux / Windows / HPG-direct), the
+> `./scripts/setup-local.sh` one-liner, and troubleshooting. Start there — this
+> README has just the short-form commands.
+
 ### Due Dates
 - ~~**Feb 01: Project Proposal**~~
 - ~~Feb 06: Week 4 reports~~
