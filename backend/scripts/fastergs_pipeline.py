@@ -179,6 +179,13 @@ def main():
     # pick up the fused kernel.
     parser.add_argument("--use-fastergs-adam", action=argparse.BooleanOptionalAction, default=False,
                         help="Enable FasterGS's fused Adam optimizer (rasterizer stays disabled).")
+    # Training backend selector. `fastergs` (default) runs the Inria fork
+    # via the existing conda env + patch pipeline. `opensplat` invokes the
+    # prebuilt C++ binary under /blue/cis4914/joshuabowman/gs_final/src/OpenSplat/;
+    # shortgs + fastergs-adam flags are ignored in that branch because they
+    # don't apply to OpenSplat's codebase.
+    parser.add_argument("--backend", choices=["fastergs", "opensplat"], default="fastergs",
+                        help="Which trainer to invoke on HPG (default fastergs).")
 
     args = parser.parse_args()
 
@@ -391,21 +398,24 @@ def main():
         save_fingerprint(remote_sfm_fp_path, current_fp)
         log(f"INFO: SfM step finished successfully (method={args.sfm_method})")
 
-    log("INFO: Starting Gaussian Splatting (fastergs) on HiPerGator GPU (may take 10-60+ minutes)")
+    log(f"INFO: Starting Gaussian Splatting ({args.backend}) on HiPerGator GPU (may take 10-60+ minutes)")
     # Build the shortgs env so hpg_gs_final_train.py can inject them as
     # env exports in the SLURM bash. Empty/zero values mean "technique off".
+    # OpenSplat doesn't read these, but we still propagate the seed so its
+    # metrics_summary.json carries the same field for cross-backend comparison.
     shortgs_env = {}
     active_techniques = []
-    if args.shortgs_scale_reset_every and args.shortgs_scale_reset_every > 0:
-        shortgs_env["SHORTGS_SCALE_RESET_EVERY"] = str(args.shortgs_scale_reset_every)
-        shortgs_env["SHORTGS_SCALE_RESET_FACTOR"] = str(args.shortgs_scale_reset_factor)
-        active_techniques.append("sr")
-    if args.shortgs_entropy_weight and args.shortgs_entropy_weight > 0:
-        shortgs_env["SHORTGS_ENTROPY_WEIGHT"] = str(args.shortgs_entropy_weight)
-        active_techniques.append("ent")
-    if args.shortgs_progressive_resolution:
-        shortgs_env["SHORTGS_PROGRESSIVE_RESOLUTION"] = args.shortgs_progressive_resolution
-        active_techniques.append("pr")
+    if args.backend == "fastergs":
+        if args.shortgs_scale_reset_every and args.shortgs_scale_reset_every > 0:
+            shortgs_env["SHORTGS_SCALE_RESET_EVERY"] = str(args.shortgs_scale_reset_every)
+            shortgs_env["SHORTGS_SCALE_RESET_FACTOR"] = str(args.shortgs_scale_reset_factor)
+            active_techniques.append("sr")
+        if args.shortgs_entropy_weight and args.shortgs_entropy_weight > 0:
+            shortgs_env["SHORTGS_ENTROPY_WEIGHT"] = str(args.shortgs_entropy_weight)
+            active_techniques.append("ent")
+        if args.shortgs_progressive_resolution:
+            shortgs_env["SHORTGS_PROGRESSIVE_RESOLUTION"] = args.shortgs_progressive_resolution
+            active_techniques.append("pr")
     if args.seed is not None:
         shortgs_env["SHORTGS_SEED"] = str(args.seed)
 
@@ -413,11 +423,14 @@ def main():
     #   test123456_s1-baseline_train_20260416_195114
     #   test123456_s1-shortgs-sr-ent-pr_train_20260416_195114
     #   test123456_s1-fastergsadam_train_20260417_160000
+    #   test123456_s1-opensplat_train_20260417_170000
     # Tags get embedded in file paths, so stick to [A-Za-z0-9_.-].
     label_parts = []
     if args.seed is not None:
         label_parts.append(f"s{args.seed}")
-    if active_techniques:
+    if args.backend == "opensplat":
+        label_parts.append("opensplat")
+    elif active_techniques:
         label_parts.append("shortgs-" + "-".join(active_techniques))
     elif args.use_fastergs_adam:
         label_parts.append("fastergsadam")
@@ -461,7 +474,8 @@ def main():
             args.ssh_control_persist,
             *(["--identity-file", args.identity_file] if args.identity_file else []),
             *(["--no-ssh-mux"] if args.no_ssh_mux else []),
-            *(["--use-fastergs-adam"] if args.use_fastergs_adam else []),
+            *(["--use-fastergs-adam"] if args.use_fastergs_adam and args.backend == "fastergs" else []),
+            "--backend", args.backend,
         ],
         extra_env=shortgs_env if shortgs_env else None,
     )
@@ -484,7 +498,10 @@ def main():
     target_dataset_splat = dataset_dir / "splat.splat"
     shutil.copy2(latest_splat, target_dataset_splat)
 
-    target_gallery_splat = backend_dir / "hipergator" / f"{args.dataset}_fastergs_latest.splat"
+    # Tag the gallery copy with the backend so fastergs + opensplat runs for
+    # the same dataset don't clobber each other's "latest" marker.
+    gallery_tag = "opensplat" if args.backend == "opensplat" else "fastergs"
+    target_gallery_splat = backend_dir / "hipergator" / f"{args.dataset}_{gallery_tag}_latest.splat"
     shutil.copy2(latest_splat, target_gallery_splat)
 
     if latest_ply is not None:

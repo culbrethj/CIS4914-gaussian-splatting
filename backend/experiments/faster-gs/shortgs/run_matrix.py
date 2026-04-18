@@ -77,7 +77,7 @@ def build_env(config_flags: dict, seed: int) -> dict:
 
 
 def invoke_pipeline(*, dataset: str, video: Path, iterations: int, partition: str,
-                    config_flags: dict, seed: int, dry_run: bool) -> int:
+                    backend: str, config_flags: dict, seed: int, dry_run: bool) -> int:
     cmd = [
         sys.executable,
         str(BACKEND_DIR / "scripts" / "fastergs_pipeline.py"),
@@ -86,21 +86,23 @@ def invoke_pipeline(*, dataset: str, video: Path, iterations: int, partition: st
         "--iters", str(iterations),
         "--train-partition", partition,
         "--seed", str(seed),
+        "--backend", backend,
     ]
-    if config_flags.get("shortgs_scale_reset_every"):
-        cmd += ["--shortgs-scale-reset-every", str(config_flags["shortgs_scale_reset_every"])]
-    if config_flags.get("shortgs_scale_reset_factor") is not None:
-        cmd += ["--shortgs-scale-reset-factor", str(config_flags["shortgs_scale_reset_factor"])]
-    if config_flags.get("shortgs_entropy_weight"):
-        cmd += ["--shortgs-entropy-weight", str(config_flags["shortgs_entropy_weight"])]
-    if config_flags.get("shortgs_progressive_resolution"):
-        cmd += ["--shortgs-progressive-resolution", str(config_flags["shortgs_progressive_resolution"])]
-    # Orthogonal to the shortgs techniques: flip the vendored fork's
-    # USE_FASTERGS_ADAM line to True before training. Captures the
-    # partial-FasterGS speedup that works on both L4 and B200 while
-    # the custom rasterizer stays disabled.
-    if config_flags.get("use_fastergs_adam"):
-        cmd += ["--use-fastergs-adam"]
+    # shortgs + fastergs-adam flags only apply to the fastergs backend.
+    # OpenSplat is a separate C++ trainer that doesn't know about them, so
+    # drop them here rather than errorring — lets the same yaml row carry
+    # flags for mixed backends without surprising the user.
+    if backend == "fastergs":
+        if config_flags.get("shortgs_scale_reset_every"):
+            cmd += ["--shortgs-scale-reset-every", str(config_flags["shortgs_scale_reset_every"])]
+        if config_flags.get("shortgs_scale_reset_factor") is not None:
+            cmd += ["--shortgs-scale-reset-factor", str(config_flags["shortgs_scale_reset_factor"])]
+        if config_flags.get("shortgs_entropy_weight"):
+            cmd += ["--shortgs-entropy-weight", str(config_flags["shortgs_entropy_weight"])]
+        if config_flags.get("shortgs_progressive_resolution"):
+            cmd += ["--shortgs-progressive-resolution", str(config_flags["shortgs_progressive_resolution"])]
+        if config_flags.get("use_fastergs_adam"):
+            cmd += ["--use-fastergs-adam"]
 
     env = build_env(config_flags, seed)
     print(f"[run_matrix] $ {' '.join(cmd)}", flush=True)
@@ -163,6 +165,12 @@ def main():
         for config in configs:
             cname = config.get("name", "unnamed")
             cflags = config.get("flags") or {}
+            # Per-variant backend selector. Defaults to fastergs so every
+            # pre-existing variant in the yaml keeps its current behavior.
+            cbackend = config.get("backend") or "fastergs"
+            if cbackend not in ("fastergs", "opensplat"):
+                print(f"[run_matrix] unknown backend {cbackend!r} on config {cname}, skipping")
+                continue
             for seed in seeds:
                 run_idx += 1
                 run_name = f"{dataset}__{cname}__seed{seed}"
@@ -197,6 +205,7 @@ def main():
                     video=video_path,
                     iterations=iterations,
                     partition=partition,
+                    backend=cbackend,
                     config_flags=cflags,
                     seed=seed,
                     dry_run=args.dry_run,

@@ -244,6 +244,200 @@ def sync_remote_file(
     log(f"[sync] Uploaded {label} to {remote_target}")
 
 
+def build_opensplat_sbatch_script(
+    *,
+    remote_root: str,
+    dataset: str,
+    stage: str,
+    iterations: int,
+    env_prefix: str,
+    opensplat_root: str,
+    converter_script: str,
+    preflight_script: str,
+    metrics_collector_script: str,
+    metrics_plotter_script: str,
+    dataset_label_for_metrics: str,
+    run_tag: str,
+    slurm_time: str,
+    slurm_cpus: int,
+    slurm_mem: str,
+    slurm_gpus: int,
+    slurm_partition: str | None,
+    slurm_account: str | None,
+    out_path: str,
+    err_path: str,
+) -> str:
+    # OpenSplat sbatch. Separate from the fastergs body because it doesn't
+    # touch conda, doesn't clone the Inria fork, and doesn't apply any
+    # shortgs/fastergs patches. It links against libtorch from the existing
+    # fastergs_cuda128 env purely for the shared object runtime.
+    #
+    # Binary selection: hpg-b200 partitions use the build_b200/ binary
+    # (compiled with sm_89;100); everything else uses build/ (sm_80;89;90).
+    # The run dir mirrors the fastergs layout so the fetch + gallery code
+    # paths on the local side don't need to care which backend produced it.
+    lines = [
+        "#!/bin/bash",
+        f"#SBATCH --job-name=opensplat_{stage}",
+        f"#SBATCH --output={out_path}",
+        f"#SBATCH --error={err_path}",
+        f"#SBATCH --time={slurm_time}",
+        f"#SBATCH --cpus-per-task={slurm_cpus}",
+        f"#SBATCH --mem={slurm_mem}",
+        f"#SBATCH --gres=gpu:{slurm_gpus}",
+    ]
+    if slurm_partition:
+        lines.append(f"#SBATCH --partition={slurm_partition}")
+    if slurm_account:
+        lines.append(f"#SBATCH --account={slurm_account}")
+
+    # OpenSplat doesn't read any SHORTGS_* vars, but we forward SHORTGS_SEED
+    # so the metrics summary can still record which seed the matrix asked
+    # for (value is informational only — OpenSplat is non-seedable).
+    seed_forward = f"export SHORTGS_SEED={shlex.quote(os.environ.get('SHORTGS_SEED', ''))}"
+
+    script = f"""#!/bin/bash
+set -euo pipefail
+module purge
+module load cuda/12.8.1 gcc/12.2.0 opencv/4.7.0
+
+echo "[opensplat] host=$(hostname) started=$(date -Is) stage={stage}"
+module -t list 2>&1 || true
+nvidia-smi || true
+nvidia-smi --query-gpu=name,compute_cap --format=csv,noheader 2>&1 || true
+
+ROOT={shlex.quote(remote_root)}
+DATASET={shlex.quote(dataset)}
+STAGE={shlex.quote(stage)}
+RUN_TAG={shlex.quote(run_tag)}
+OPENSPLAT_ROOT={shlex.quote(opensplat_root)}
+ENV_PREFIX={shlex.quote(env_prefix)}
+CONVERTER={shlex.quote(converter_script)}
+PREFLIGHT={shlex.quote(preflight_script)}
+METRICS_COLLECTOR={shlex.quote(metrics_collector_script)}
+METRICS_PLOTTER={shlex.quote(metrics_plotter_script)}
+METRICS_DATASET_LABEL={shlex.quote(dataset_label_for_metrics)}
+{seed_forward}
+
+# Libtorch is pulled from the existing fastergs_cuda128 env (same env we
+# linked OpenSplat against at build time). If the env is missing we fail
+# fast — no point running with a different torch ABI.
+TORCH_LIB="$ENV_PREFIX/lib/python3.10/site-packages/torch/lib"
+if [ ! -d "$TORCH_LIB" ]; then
+  echo "[error] torch lib dir missing: $TORCH_LIB" >&2
+  exit 51
+fi
+export LD_LIBRARY_PATH="$TORCH_LIB:/apps/opencv/4.7.0/lib64:${{LD_LIBRARY_PATH:-}}"
+
+# Partition-aware binary selection. The build/ variant covers L4 + A100 +
+# H100; build_b200/ covers B200. We check the dir exists before committing
+# to it so a stale/incomplete install doesn't silently fall back.
+PARTITION="${{SLURM_JOB_PARTITION:-}}"
+case "$PARTITION" in
+  hpg-b200)
+    BIN="$OPENSPLAT_ROOT/build_b200/opensplat"
+    ;;
+  *)
+    BIN="$OPENSPLAT_ROOT/build/opensplat"
+    ;;
+esac
+if [ ! -x "$BIN" ]; then
+  echo "[error] OpenSplat binary missing or not executable: $BIN" >&2
+  exit 52
+fi
+echo "[opensplat] using binary: $BIN"
+
+SCENE="$ROOT/experiments/faster-gs/datasets/$DATASET"
+if [ ! -d "$SCENE/images" ] || [ ! -d "$SCENE/sparse/0" ]; then
+  echo "[error] Missing prepared dataset layout at: $SCENE" >&2
+  exit 53
+fi
+
+# Preflight reuses the same script the fastergs branch uses — it just
+# asserts COLMAP sparse/0 + images/ exist and has a minimum image count.
+if [ -f "$PREFLIGHT" ]; then
+  PY_CMD="$(command -v python3 || command -v python || true)"
+  if [ -n "$PY_CMD" ]; then
+    "$PY_CMD" "$PREFLIGHT" "$SCENE" || echo "[warn] preflight returned non-zero"
+  fi
+fi
+
+# Mirror the fastergs run_dir layout so downstream fetch/gallery code finds
+# the PLY at RUN_DIR/point_cloud/iteration_N/point_cloud.ply. The collector
+# then picks this path up the same way it does for fastergs runs.
+RUN_DIR="$ROOT/outputs/faster-gs/$RUN_TAG"
+SPLAT_OUT="$ROOT/outputs/$RUN_TAG.splat"
+METRICS_DIR="$RUN_DIR/metrics"
+TRAIN_LOG="$RUN_DIR/train_stdout.log"
+PC_ITER_DIR="$RUN_DIR/point_cloud/iteration_{iterations}"
+mkdir -p "$RUN_DIR" "$METRICS_DIR" "$PC_ITER_DIR"
+
+TRAIN_START_EPOCH=$(date +%s)
+echo "[opensplat] train_start_epoch=$TRAIN_START_EPOCH"
+echo "[opensplat] scene=$SCENE run_dir=$RUN_DIR iterations={iterations}"
+
+# Invoke OpenSplat. Output PLY lands in the iteration_N dir so the fetch +
+# gallery pipeline treat it identically to a fastergs checkpoint.
+"$BIN" "$SCENE" -o "$PC_ITER_DIR/point_cloud.ply" -n {iterations} 2>&1 | tee "$TRAIN_LOG"
+
+if [ ! -f "$PC_ITER_DIR/point_cloud.ply" ]; then
+  echo "[error] OpenSplat did not produce a PLY: $PC_ITER_DIR/point_cloud.ply" >&2
+  exit 54
+fi
+
+# Convert ply->splat on HPG so we only scp the smaller splat artifact back.
+# The converter drops the splat next to the input PLY, so we copy it into
+# place under $ROOT/outputs/<run_tag>.splat the same way the fastergs branch
+# does.
+if [ -f "$CONVERTER" ]; then
+  PY_CMD="$(command -v python3 || command -v python || true)"
+  if [ -n "$PY_CMD" ]; then
+    "$PY_CMD" "$CONVERTER" "$PC_ITER_DIR/point_cloud.ply" || echo "[warn] converter failed"
+    SPLAT_PATH="$PC_ITER_DIR/point_cloud.splat"
+    if [ -f "$SPLAT_PATH" ]; then
+      cp -f "$SPLAT_PATH" "$SPLAT_OUT"
+      echo "[opensplat] splat=$SPLAT_OUT"
+    fi
+  fi
+fi
+
+# Run the shared metrics collector in opensplat mode. The parser reads the
+# "Step N: loss (pct%)" lines tee'd into TRAIN_LOG and writes records with
+# the same schema fastergs uses (iteration/loss/psnr/num_gaussians/wall_seconds).
+if [ -f "$METRICS_COLLECTOR" ]; then
+  SEED_ARG=""
+  if [ -n "${{SHORTGS_SEED:-}}" ]; then SEED_ARG="--seed $SHORTGS_SEED"; fi
+  PY_CMD="$(command -v python3 || command -v python || true)"
+  if [ -n "$PY_CMD" ]; then
+    "$PY_CMD" "$METRICS_COLLECTOR" \\
+      --run-dir "$RUN_DIR" \\
+      --log-file "$TRAIN_LOG" \\
+      --out-dir "$METRICS_DIR" \\
+      --backend opensplat \\
+      --dataset "$METRICS_DATASET_LABEL" \\
+      --run-tag "$RUN_TAG" \\
+      --iterations {iterations} \\
+      --partition "${{SLURM_JOB_PARTITION:-}}" \\
+      --start-epoch "$TRAIN_START_EPOCH" \\
+      $SEED_ARG || echo "[warn] metrics_collector returned non-zero"
+  fi
+fi
+
+# Plots are best-effort — matplotlib might not be on the system python.
+if [ -f "$METRICS_PLOTTER" ]; then
+  PY_CMD="$(command -v python3 || command -v python || true)"
+  if [ -n "$PY_CMD" ]; then
+    "$PY_CMD" "$METRICS_PLOTTER" \\
+      --metrics-dir "$METRICS_DIR" \\
+      --title-prefix "$METRICS_DATASET_LABEL $RUN_TAG" || echo "[warn] metrics_plotter returned non-zero"
+  fi
+fi
+
+echo "[opensplat] finished=$(date -Is)"
+"""
+    return "\n".join(lines) + "\n\n" + script + "\n"
+
+
 def build_sbatch_script(
     *,
     remote_root: str,
@@ -279,6 +473,8 @@ def build_sbatch_script(
     slurm_account: str | None,
     out_path: str,
     err_path: str,
+    backend: str = "fastergs",
+    opensplat_root: str = "/blue/cis4914/joshuabowman/gs_final/src/OpenSplat",
 ) -> str:
     lines = [
         "#!/bin/bash",
@@ -844,6 +1040,15 @@ def main():
     # as of Apr 17). The matrix config name `fastergs_adam` sets this.
     parser.add_argument("--use-fastergs-adam", action=argparse.BooleanOptionalAction, default=False,
                         help="Flip USE_FASTERGS_ADAM=True in the vendored fork before training.")
+    # Training backend. fastergs (default) keeps every path on this file
+    # unchanged: conda env, Inria fork clone, sed toggles, etc. opensplat
+    # invokes a prebuilt C++ binary under /blue/cis4914/joshuabowman/gs_final/src/OpenSplat/
+    # and skips the fastergs env entirely (only uses torch env for libtorch
+    # runtime linkage).
+    parser.add_argument("--backend", choices=["fastergs", "opensplat"], default="fastergs",
+                        help="Which trainer to invoke inside the SLURM job.")
+    parser.add_argument("--opensplat-root", default="/blue/cis4914/joshuabowman/gs_final/src/OpenSplat",
+                        help="Remote OpenSplat install dir (contains build/ and build_b200/ binaries).")
     parser.add_argument("--run-label", default="",
                         help="Short tag injected into the run_tag (e.g. 's1-baseline' or 's1-shortgs-sr-ent'). "
                              "When set, run_tag becomes '<dataset>_<label>_<stage>_<timestamp>'. "
@@ -990,41 +1195,67 @@ def main():
             "--slurm-partition hpg-default --slurm-cpus 1 --slurm-mem 8G --slurm-time 01:00:00"
         ) from exc
 
-    sbatch_text = build_sbatch_script(
-        remote_root=root,
-        dataset=args.dataset,
-        repo_dir=args.repo_dir,
-        repo_url=args.repo_url,
-        repo_branch=args.repo_branch,
-        env_prefix=args.env_prefix,
-        modules=args.modules,
-        stage=args.stage,
-        reuse_env=args.reuse_env,
-        iterations=iterations,
-        pinned_python=args.pinned_python,
-        pinned_torch=args.pinned_torch,
-        pinned_torchvision=args.pinned_torchvision,
-        pinned_torchaudio=args.pinned_torchaudio,
-        pinned_pytorch_cuda=args.pinned_pytorch_cuda,
-        torch_cuda_arch_list=args.torch_cuda_arch_list,
-        backend_pip=args.backend_pip,
-        converter_script=args.converter_script,
-        preflight_script=args.preflight_script,
-        metrics_collector_script=args.metrics_collector_script,
-        metrics_plotter_script=args.metrics_plotter_script,
-        shortgs_patches_script=args.shortgs_patches_script,
-        dataset_label_for_metrics=(args.metrics_dataset_label or args.dataset),
-        run_tag=run_tag,
-        use_fastergs_adam=args.use_fastergs_adam,
-        slurm_time=args.slurm_time,
-        slurm_cpus=args.slurm_cpus,
-        slurm_mem=args.slurm_mem,
-        slurm_gpus=args.slurm_gpus,
-        slurm_partition=args.slurm_partition,
-        slurm_account=args.slurm_account,
-        out_path=remote_out,
-        err_path=remote_err,
-    )
+    if args.backend == "opensplat":
+        # OpenSplat needs none of the Inria / conda plumbing — just cuda +
+        # gcc + opencv modules and libtorch runtime from the existing env.
+        sbatch_text = build_opensplat_sbatch_script(
+            remote_root=root,
+            dataset=args.dataset,
+            stage=args.stage,
+            iterations=iterations,
+            env_prefix=args.env_prefix,
+            opensplat_root=args.opensplat_root,
+            converter_script=args.converter_script,
+            preflight_script=args.preflight_script,
+            metrics_collector_script=args.metrics_collector_script,
+            metrics_plotter_script=args.metrics_plotter_script,
+            dataset_label_for_metrics=(args.metrics_dataset_label or args.dataset),
+            run_tag=run_tag,
+            slurm_time=args.slurm_time,
+            slurm_cpus=args.slurm_cpus,
+            slurm_mem=args.slurm_mem,
+            slurm_gpus=args.slurm_gpus,
+            slurm_partition=args.slurm_partition,
+            slurm_account=args.slurm_account,
+            out_path=remote_out,
+            err_path=remote_err,
+        )
+    else:
+        sbatch_text = build_sbatch_script(
+            remote_root=root,
+            dataset=args.dataset,
+            repo_dir=args.repo_dir,
+            repo_url=args.repo_url,
+            repo_branch=args.repo_branch,
+            env_prefix=args.env_prefix,
+            modules=args.modules,
+            stage=args.stage,
+            reuse_env=args.reuse_env,
+            iterations=iterations,
+            pinned_python=args.pinned_python,
+            pinned_torch=args.pinned_torch,
+            pinned_torchvision=args.pinned_torchvision,
+            pinned_torchaudio=args.pinned_torchaudio,
+            pinned_pytorch_cuda=args.pinned_pytorch_cuda,
+            torch_cuda_arch_list=args.torch_cuda_arch_list,
+            backend_pip=args.backend_pip,
+            converter_script=args.converter_script,
+            preflight_script=args.preflight_script,
+            metrics_collector_script=args.metrics_collector_script,
+            metrics_plotter_script=args.metrics_plotter_script,
+            shortgs_patches_script=args.shortgs_patches_script,
+            dataset_label_for_metrics=(args.metrics_dataset_label or args.dataset),
+            run_tag=run_tag,
+            use_fastergs_adam=args.use_fastergs_adam,
+            slurm_time=args.slurm_time,
+            slurm_cpus=args.slurm_cpus,
+            slurm_mem=args.slurm_mem,
+            slurm_gpus=args.slurm_gpus,
+            slurm_partition=args.slurm_partition,
+            slurm_account=args.slurm_account,
+            out_path=remote_out,
+            err_path=remote_err,
+        )
 
     with tempfile.NamedTemporaryFile("w", suffix=".sbatch", delete=False, encoding="utf-8") as tf:
         tf.write(sbatch_text)

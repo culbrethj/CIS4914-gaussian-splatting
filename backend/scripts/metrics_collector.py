@@ -75,10 +75,15 @@ EVAL_PATTERN = re.compile(
 # the shape of the loss curve.
 PROGRESS_STRIDE = 100
 
-# OpenSplat binary prints less structured output, but we try to catch any PSNR
-# line and the final iteration count if present.
+# OpenSplat (pierotofy/OpenSplat v1.1.x) prints one "Step N: <loss> (pct%)"
+# line per iteration during training. Example: "Step 1500: 0.0406808 (75%)".
+# We parse those into a dense loss curve (downsampled on the same stride we
+# use for fastergs progress lines). PSNR is not emitted during training, so
+# we leave that null unless a separate eval pass writes something parsable.
+OPENSPLAT_STEP_PATTERN = re.compile(
+    r"Step\s+(?P<iter>\d+)\s*:\s*(?P<loss>[0-9.eE+-]+)"
+)
 OPENSPLAT_PSNR_PATTERN = re.compile(r"PSNR\s*[:=]?\s*(?P<psnr>[0-9.eE+-]+)", re.IGNORECASE)
-OPENSPLAT_ITER_PATTERN = re.compile(r"iter(?:ation)?s?\s*[:=]?\s*(?P<iter>\d+)", re.IGNORECASE)
 
 
 def count_ply_gaussians(ply_path: Path) -> int | None:
@@ -164,25 +169,57 @@ def parse_progress_log(log_text: str) -> list[dict]:
     return [records[k] for k in sorted(records.keys())]
 
 
-def parse_opensplat_log(log_text: str) -> tuple[float | None, int | None]:
-    # OpenSplat's output is freeform. Best we can do is grab the last PSNR and
-    # last iteration-looking number we see. Both may be missing.
+def parse_opensplat_log(log_text: str) -> tuple[list[dict], float | None, int | None]:
+    # Parse "Step N: loss (pct%)" lines into an iteration-indexed record list
+    # matching the fastergs schema. We downsample to PROGRESS_STRIDE so a
+    # 10k-iter run produces ~100 datapoints. PSNR is rarely present during
+    # training; we still scan for it so a post-hoc eval pass would surface.
+    records: dict[int, dict] = {}
     last_psnr: float | None = None
     last_iter: int | None = None
+
+    # OpenSplat uses newlines (not carriage returns) between steps, so we
+    # don't need the \r split that the fastergs tqdm parser does.
     for line in log_text.splitlines():
-        m = OPENSPLAT_PSNR_PATTERN.search(line)
+        m = OPENSPLAT_STEP_PATTERN.search(line)
         if m:
             try:
-                last_psnr = float(m.group("psnr"))
+                iteration = int(m.group("iter"))
+                loss = float(m.group("loss"))
             except Exception:
-                pass
-        m = OPENSPLAT_ITER_PATTERN.search(line)
-        if m:
+                continue
+            last_iter = iteration
+            if iteration == 0 or iteration % PROGRESS_STRIDE == 0:
+                rec = records.get(iteration) or {"iteration": iteration}
+                rec["loss"] = loss
+                records[iteration] = rec
+            continue
+
+        pm = OPENSPLAT_PSNR_PATTERN.search(line)
+        if pm:
             try:
-                last_iter = int(m.group("iter"))
+                last_psnr = float(pm.group("psnr"))
             except Exception:
                 pass
-    return last_psnr, last_iter
+
+    # Always keep the final iteration as a datapoint even when it doesn't
+    # land on the stride boundary — matches the fastergs behavior.
+    if last_iter is not None and last_iter not in records:
+        # Find the last loss we saw for any nearby iteration; fall back to
+        # scanning the tail of the log for the literal final step.
+        for line in reversed(log_text.splitlines()):
+            m = OPENSPLAT_STEP_PATTERN.search(line)
+            if m and int(m.group("iter")) == last_iter:
+                try:
+                    records[last_iter] = {"iteration": last_iter, "loss": float(m.group("loss"))}
+                except Exception:
+                    pass
+                break
+
+    for rec in records.values():
+        rec.setdefault("loss", None)
+
+    return [records[k] for k in sorted(records.keys())], last_psnr, last_iter
 
 
 def compute_image_metrics(renders_dir: Path, gt_dir: Path) -> tuple[float | None, float | None]:
@@ -478,43 +515,97 @@ def collect_opensplat(
     log_text: str,
     start_wall: float | None,
 ) -> tuple[list[dict], dict]:
-    # OpenSplat doesn't emit checkpoint-level metrics we can trust, so we just
-    # write a single final record with whatever we can find. SSIM/LPIPS stay
-    # null unless the user wired up an eval pass separately.
-    psnr, iter_count = parse_opensplat_log(log_text)
+    # Parse the "Step N: loss (pct%)" trajectory and layer per-checkpoint
+    # gaussian counts on top so the frontend gets a dense loss curve plus
+    # the same fastergs-style summary fields. PSNR/SSIM/LPIPS stay null for
+    # now — OpenSplat doesn't evaluate against held-out views during training.
+    step_records, last_psnr, last_iter = parse_opensplat_log(log_text)
 
-    num_gaussians = None
-    ply_path = run_dir / "splat.ply"
-    if ply_path.is_file():
-        num_gaussians = count_ply_gaussians(ply_path)
+    # OpenSplat writes the PLY to one of two places depending on how it was
+    # invoked: the opensplat sbatch we generate puts it under
+    # point_cloud/iteration_<N>/point_cloud.ply to mirror fastergs; the
+    # standalone wrapper puts it directly in the run dir. Both are handled.
+    checkpoints = find_checkpoint_iterations(run_dir)
+    latest_ply_path: Path | None = None
+    if checkpoints:
+        latest_ply_path = run_dir / "point_cloud" / f"iteration_{checkpoints[-1]}" / "point_cloud.ply"
+    if latest_ply_path is None or not latest_ply_path.is_file():
+        for candidate in (run_dir / "point_cloud.ply", run_dir / "splat.ply"):
+            if candidate.is_file():
+                latest_ply_path = candidate
+                break
 
+    num_gaussians = count_ply_gaussians(latest_ply_path) if latest_ply_path and latest_ply_path.is_file() else None
     wall_seconds = None
-    if start_wall is not None and ply_path.is_file():
+    if start_wall is not None and latest_ply_path is not None and latest_ply_path.is_file():
         try:
-            wall_seconds = max(0.0, ply_path.stat().st_mtime - start_wall)
+            wall_seconds = max(0.0, latest_ply_path.stat().st_mtime - start_wall)
         except Exception:
             pass
 
-    record = {
-        "iteration": iter_count,
-        "loss": None,
-        "psnr": psnr,
-        "ssim": None,
-        "lpips": None,
-        "num_gaussians": num_gaussians,
-        "splats_per_frame": num_gaussians,
-        "wall_seconds": wall_seconds,
+    by_iter: dict[int, dict] = {
+        r["iteration"]: {
+            "iteration": r["iteration"],
+            "loss": r.get("loss"),
+            "psnr": None,
+            "ssim": None,
+            "lpips": None,
+            "num_gaussians": None,
+            "splats_per_frame": None,
+            "wall_seconds": None,
+        }
+        for r in step_records
     }
+
+    # Attach gaussian count + wall_seconds to the final-iteration record.
+    final_iter = last_iter if last_iter is not None else (checkpoints[-1] if checkpoints else None)
+    if final_iter is not None:
+        rec = by_iter.get(final_iter) or {
+            "iteration": final_iter,
+            "loss": None,
+            "psnr": None,
+            "ssim": None,
+            "lpips": None,
+            "num_gaussians": None,
+            "splats_per_frame": None,
+            "wall_seconds": None,
+        }
+        if num_gaussians is not None:
+            rec["num_gaussians"] = num_gaussians
+            rec["splats_per_frame"] = num_gaussians
+        if wall_seconds is not None:
+            rec["wall_seconds"] = wall_seconds
+        if last_psnr is not None:
+            rec["psnr"] = last_psnr
+        by_iter[final_iter] = rec
+
+    records = [by_iter[k] for k in sorted(by_iter.keys())]
+
+    def _last_non_null(key):
+        for r in reversed(records):
+            if r.get(key) is not None:
+                return r[key]
+        return None
+
     summary_extras = {
-        "final_psnr": psnr,
+        "final_psnr": _last_non_null("psnr"),
         "final_ssim": None,
         "final_lpips": None,
         "final_num_gaussians": num_gaussians,
         "final_splats_per_frame": num_gaussians,
-        "final_loss": None,
+        "final_loss": _last_non_null("loss"),
         "total_wall_seconds": wall_seconds,
     }
-    return [record], summary_extras
+
+    # Histograms from the final PLY — Reports page uses these to compare
+    # scale/opacity distributions across backends just like it does for the
+    # fastergs variants.
+    if latest_ply_path is not None and latest_ply_path.is_file():
+        hists = compute_ply_histograms(latest_ply_path)
+        if hists:
+            summary_extras["histograms"] = hists
+
+    return records, summary_extras
 
 
 def main():
