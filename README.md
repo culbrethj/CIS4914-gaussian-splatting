@@ -44,22 +44,26 @@ Visit `http://localhost:5173` in browser.
 
 ### Backend Setup and Run
 
-This is needed for the current video upload implementation
-Python 3 is required. Create and activate a virtual environment.
+This is needed for the current video upload implementation. Python 3 is required.
+
+Create and activate a virtual environment **from the repo root** (`requirements.txt` lives here, not under `backend/`):
+
 ```bash
-cd backend
 python3 -m venv venv
 source venv/bin/activate  # Mac/Linux
 venv\Scripts\activate     # Windows
 ```
 
-Install Backend Dependencies
+Install backend dependencies (still from repo root):
+
 ```bash
-pip install requirements.txt
+pip install -r requirements.txt
 ```
 
-Run the server.
+Then run the server from the `backend/` dir:
+
 ```bash
+cd backend
 uvicorn main:app --reload
 ```
 
