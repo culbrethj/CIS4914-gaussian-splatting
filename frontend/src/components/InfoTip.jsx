@@ -2,9 +2,9 @@ import React, { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "./InfoTip.css";
 
-// Small "(i)" info icon that reveals a plain-English explanation on hover
-// or keyboard focus. Positions the tooltip through a portal so it never
-// gets clipped by a parent's overflow. Prop `text` is the explanation.
+// Info tooltip button. Shows explanation on hover or keyboard focus via a
+// portal so it is not clipped by parent overflow. Prop `text` is the
+// explanation.
 
 export default function InfoTip({ text, ariaLabel = "More info" }) {
   const [open, setOpen] = useState(false);

@@ -103,6 +103,21 @@ async function parseApiError(response) {
   }
 }
 
+/**
+ * LiveDemos: single-page orchestration for pipeline runs.
+ *
+ * Organized into four sections:
+ *   1. State + effects (lines 106-940): ~30 state pieces and the effects
+ *      that poll jobs, reconnect the WebSocket, and persist active-job
+ *      state in localStorage.
+ *   2. Upload + Run panel (lines 944-1341): the left panel with New
+ *      video / Existing dataset tabs, dataset form, backend picker,
+ *      and Shorter-Splatting Advanced Settings.
+ *   3. Progress + Logs panel (lines 1351-1422): stage chips, ETA, and
+ *      the live log feed.
+ *   4. Viewer panel (lines 1424-1496): renders the published splat via
+ *      GaussViewer once the run finishes.
+ */
 export default function LiveDemos() {
   // `datasets` = every dataset on disk, regardless of whether a splat
   // exists yet. Used by the "Existing dataset" picker so we can rerun

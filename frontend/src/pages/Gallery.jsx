@@ -3,13 +3,12 @@ import GaussViewer from "../components/GaussViewer";
 import SideBySideViewer from "../components/SideBySideViewer";
 import "./Gallery.css";
 
-// Gallery uses a two-level selector: pick a dataset, then pick a run
-// within that dataset. Single-run datasets skip the run picker.
-// Compare mode shows two runs from the SAME dataset side-by-side — the
-// only comparison that actually tells you something about training
-// settings. Runs come from GET /api/datasets/{name}/runs which groups
-// per-run splat files with their metrics so the dropdown can show
-// "Run 1", "Run 2", etc. rather than raw filenames.
+// Two-level selector: pick a dataset, then a run. Single-run datasets
+// auto-select the one run. Compare mode shows two runs from the same
+// dataset side-by-side.
+// Runs come from GET /api/datasets/{name}/runs which groups per-run splats
+// with their metrics so the dropdown can show "Run 1", "Run 2" instead of
+// raw filenames.
 
 function displayRunLabel(run) {
   if (!run) return "";

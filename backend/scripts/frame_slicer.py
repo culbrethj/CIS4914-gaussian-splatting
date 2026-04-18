@@ -46,7 +46,7 @@ def video_slicer(
             break
 
         if i % step == 0:
-            # my addition: optional downscale before writing, saves disk + later CPU
+            # Optional downscale reduces disk + downstream CPU cost
             if downscale < 1:
                 h, w = frame.shape[:2]
                 new_w = max(1, int(w * downscale))
@@ -64,8 +64,8 @@ def video_slicer(
     elapsed_sec = time.perf_counter() - start
     logger.info("Video slicing wrote %s frames to %s", saved, output_dir)
 
-    # my addition: return a metadata dict so pipeline.py can log stats.
-    # default behavior (return saved count) is unchanged.
+    # Return metadata so callers can log the step actually used.
+    # Default behavior (return saved count) is unchanged.
     if return_metadata:
         return {
             "saved": saved,

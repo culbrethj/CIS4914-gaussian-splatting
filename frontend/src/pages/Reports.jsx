@@ -42,8 +42,8 @@ const METRIC_DEFS = [
   { key: "wall_seconds", label: "Wall Time (s)" },
 ];
 
-// Six distinguishable colors. Picked so no two look alike at a glance under
-// normal or red/green-colorblind viewing. Cap overlay at 6 runs.
+// Six distinct colors. Chosen to stay distinguishable under normal and
+// red/green-colorblind viewing. Cap overlay at 6 runs.
 const RUN_COLORS = [
   "#0f6bd8", // blue
   "#c53535", // red
@@ -56,10 +56,8 @@ const BASELINE_COLOR = "#0f6bd8"; // blue
 const SHORTGS_COLOR = "#c53535"; // red
 const MAX_OVERLAY_RUNS = RUN_COLORS.length;
 
-// Resolves a run's display color. Baselines are always blue, shortgs runs
-// are always red. Beyond one of each we fall through to the palette so a
-// user comparing 3+ runs still gets distinct colors. We look at both the
-// summary (authoritative) and the tag (fallback for pre-rename runs).
+// Color assignment: baseline=blue, shortgs runs=red, others picked from the
+// palette. Keeps chart colors predictable across datasets.
 function colorForRun(runTag, summary, occurrences) {
   const isShortgs = (summary?.shortgs?.scale_reset_every > 0)
     || (summary?.shortgs?.entropy_weight > 0)

@@ -2,14 +2,9 @@ import React from "react";
 import { summaryGroups, parseRunTag, formatRunDatetime } from "../utils/runDisplay";
 import "./RunDetailsCard.css";
 
-// Structured details card for a training run. Shows, top to bottom:
-//   * header: "dataset · Run N" + backend chip + date/time
-//   * Pipeline (backend, iterations, seed, partition)
-//   * Preprocessing (fps, downscale, blur/duplicate thresholds, max width)
-//   * Shorter-Splatting (only the techniques that were actually active)
-//   * Results (final PSNR / SSIM / LPIPS / gaussians / wall time)
-//   * raw internal run_tag at the bottom (copy-pasteable id, never the
-//     primary label in the UI)
+// Run details card. Sections: header (dataset, backend, date),
+// Pipeline (backend, iterations, seed, partition), Preprocessing,
+// Shorter-Splatting flags, Results, raw tag id.
 //
 // Props:
 //   summary    - the run's metrics_summary.json object (may be partial)
