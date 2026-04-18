@@ -30,10 +30,6 @@
   gap: 16px;
 }
 
-.demo-grid.lower {
-  margin-top: 16px;
-}
-
 .panel {
   border: 1px solid var(--line);
   background: linear-gradient(180deg, var(--surface) 0%, var(--surface-alt) 100%);
@@ -437,10 +433,6 @@ button:disabled {
   color: #345b85;
   font-size: 12px;
   word-break: break-word;
-}
-
-.back-row {
-  margin-top: 20px;
 }
 
 @media (max-width: 900px) {
