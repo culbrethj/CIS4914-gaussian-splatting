@@ -1,13 +1,15 @@
+// Third-party libraries used in this file:
+//  - @react-three/drei <Splat> component (https://github.com/pmndrs/drei)
+//  - @react-three/fiber + three.js for the 3D scene graph
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Splat, OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import "./GaussViewer.css";
 
-// The viewer itself is drei's <Splat> (WebGL2) over @react-three/fiber +
-// three.js. We don't use mkkellogg/GaussianSplats3D here — the controls
-// below wire React state to three.js / Splat props, not to any third-
-// party viewer SDK.
+// Uses drei's Splat component (WebGL2) over @react-three/fiber + three.js,
+// not mkkellogg/GaussianSplats3D. React state wires to three.js and Splat
+// props directly.
 //
 // Controls panel matches the Brush-style layout: collapsible, top-left,
 // semi-transparent dark card. Controls are:

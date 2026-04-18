@@ -1,3 +1,7 @@
+# Third-party code and techniques used in this file:
+#  - VGGT (Visual Geometry Grounded Transformer), Wang et al. CVPR 2025
+#    https://github.com/facebookresearch/vggt
+#    The script wraps the repo's demo_colmap.py feed-forward entry point.
 """
 Alternative SfM stage: submits VGGT (Visual Geometry Grounded Transformer)
 to SLURM on a GPU node instead of running COLMAP on CPU.

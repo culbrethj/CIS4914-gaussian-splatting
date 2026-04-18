@@ -1,3 +1,12 @@
+# Third-party code and techniques used in this file:
+#  - Faster-GS (Hahlbohm et al., CVPR 2026)
+#    https://github.com/nerficg-project/faster-gaussian-splatting
+#  - Faster-GS Inria fork (train.py, arguments module patched for SHORTGS_*)
+#    https://github.com/fhahlbohm/gaussian-splatting
+#  - Original 3D Gaussian Splatting (Kerbl et al., SIGGRAPH 2023)
+#    https://github.com/graphdeco-inria/gaussian-splatting
+#  - Shorter-Splatting training techniques (scale reset, entropy, progressive)
+#    arXiv 2603.09277
 """
 Submits the Faster-GS GPU training job to SLURM and fetches the result.
 

@@ -1,3 +1,8 @@
+# Third-party code and techniques used in this file:
+#  - Faster-GS (Hahlbohm et al., CVPR 2026) for the remote training backend
+#    https://github.com/nerficg-project/faster-gaussian-splatting
+#  - OpenSplat (Pierotofy), alternate C++/libtorch training backend
+#    https://github.com/pierotofy/OpenSplat
 """
 Local orchestrator for the Faster-GS (and OpenSplat) backends.
 

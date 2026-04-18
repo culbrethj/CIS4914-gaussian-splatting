@@ -1,3 +1,13 @@
+# Third-party code and techniques used in this file:
+#  - OpenSplat (Pierotofy) for the local C++/libtorch training backend
+#    https://github.com/pierotofy/OpenSplat
+#  - COLMAP Structure-from-Motion pipeline (https://colmap.github.io)
+"""Local pipeline: preprocess frames, run COLMAP SfM, train with OpenSplat.
+
+Primary entry point for the OpenSplat backend. See
+``fastergs_pipeline.py`` for the HPG/Faster-GS remote variant.
+"""
+
 from __future__ import annotations
 
 import argparse
