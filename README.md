@@ -18,6 +18,34 @@
 
 ---
 
+### Prerequisites
+
+Before cloning + running this repo, make sure you have:
+
+- **Python 3.10+** for the backend + pipeline scripts. The HPG conda
+  env is pinned at 3.10.14; matching locally avoids subtle import
+  quirks.
+- **Node.js 20+** for the Vite frontend.
+- **An HPG account on the `cis4914` SLURM allocation** if you want to
+  run the Faster-GS backend (the default for training). OpenSplat
+  runs locally and doesn't need HPG.
+- **An SSH alias named `hpg`** in your `~/.ssh/config` pointing at
+  the HiPerGator login node with key-based auth already set up. The
+  pipeline scripts shell out to `ssh hpg …` and `rsync … hpg:…`;
+  without the alias every HPG step breaks. One-time config example
+  and full setup walkthrough lives in
+  [backend/experiments/faster-gs/README.md](backend/experiments/faster-gs/README.md).
+
+If you're only running OpenSplat locally, skip the HPG items and see
+the OpenSplat install section below.
+
+Faster-GS backend setup (camera-model undistort, conda env on HPG,
+troubleshooting) is documented in detail at
+[backend/experiments/faster-gs/README.md](backend/experiments/faster-gs/README.md)
+— worth skimming before the first training run.
+
+---
+
 ### Frontend Setup and Run
 
 NodeJs is required (v20+). Check your Node version.
