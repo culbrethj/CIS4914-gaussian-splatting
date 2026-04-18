@@ -64,7 +64,7 @@ export default function Landing() {
         </div>
 
         <div style={s.showMoreSection}>
-          <button onClick={() => setIsVisible(!isVisible)} style={s.showMoreBtn}>
+          <button type="button" onClick={() => setIsVisible(!isVisible)} style={s.showMoreBtn}>
             {isVisible ? "Hide example" : "Show example output"}
           </button>
 
