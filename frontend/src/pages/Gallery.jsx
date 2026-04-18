@@ -151,7 +151,7 @@ export default function Gallery() {
         <div className="gallery-empty">
           {datasetsLoading
             ? "Loading datasets..."
-            : "No datasets with viewable splats yet. Run a job from Live Demos to populate this page."}
+            : "No datasets yet. If you expect datasets here, check the backend health banner at the top of the page. The backend may not be running."}
         </div>
       ) : (
         <section className="gallery-controls">
