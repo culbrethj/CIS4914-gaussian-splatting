@@ -3,6 +3,7 @@ import GaussViewer from "../components/GaussViewer";
 import InfoTip from "../components/InfoTip";
 import StageSummary from "../components/StageSummary";
 import { parsePipelineLog, formatEta } from "../utils/pipelineLog";
+import { fetchJson, parseApiError } from "../utils/apiClient";
 import "./LiveDemos.css";
 
 // Plain-English explanations for every Advanced Settings knob. Kept in
@@ -82,25 +83,6 @@ function logKind(line) {
   if (normalized.includes("warning")) return "warn";
   if (normalized.includes("finished") || normalized.includes("successful")) return "success";
   return "info";
-}
-
-async function parseApiError(response) {
-  const fallback = `Request failed with status ${response.status}`;
-  try {
-    const body = await response.json();
-    if (body?.detail) {
-      return typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
-    }
-  } catch {
-    // intentionally ignore JSON parse errors
-  }
-
-  try {
-    const text = await response.text();
-    return text || fallback;
-  } catch {
-    return fallback;
-  }
 }
 
 /**
@@ -313,16 +295,15 @@ export default function LiveDemos() {
     if (!selectedDataset) return;
     if (viewerRunsByDataset[selectedDataset]) return;
     let cancelled = false;
-    fetch(`/api/datasets/${encodeURIComponent(selectedDataset)}/runs`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((runs) => {
-        if (!cancelled) {
-          setViewerRunsByDataset((prev) => ({ ...prev, [selectedDataset]: runs || [] }));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setViewerRunsByDataset((prev) => ({ ...prev, [selectedDataset]: [] }));
-      });
+    (async () => {
+      const runs = await fetchJson(
+        `/api/datasets/${encodeURIComponent(selectedDataset)}/runs`,
+        [],
+      );
+      if (!cancelled) {
+        setViewerRunsByDataset((prev) => ({ ...prev, [selectedDataset]: runs || [] }));
+      }
+    })();
     return () => { cancelled = true; };
   }, [selectedDataset, viewerRunsByDataset]);
 
@@ -385,10 +366,13 @@ export default function LiveDemos() {
       return;
     }
     let cancelled = false;
-    fetch(`/api/datasets/${encodeURIComponent(target)}/prep-status`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!cancelled) setPrepStatus(d); })
-      .catch(() => { if (!cancelled) setPrepStatus(null); });
+    (async () => {
+      const data = await fetchJson(
+        `/api/datasets/${encodeURIComponent(target)}/prep-status`,
+        null,
+      );
+      if (!cancelled) setPrepStatus(data);
+    })();
     return () => { cancelled = true; };
   }, [uploadedDataset, datasetName, existingDataset, inputMode, runStatus]);
 
