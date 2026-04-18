@@ -2,6 +2,11 @@
 
 Full cross-platform setup for this repo. Quick-start per platform below, then prerequisites, validation steps, and troubleshooting.
 
+> **Python version:** Requires Python 3.10–3.13. Python 3.14 is not yet
+> supported (open3d has no 3.14 wheels). If `python3 --version` returns
+> 3.14, install 3.12 first: `brew install python@3.12` on macOS, or
+> `pyenv install 3.12.7 && pyenv local 3.12.7`. See Troubleshooting.
+
 **Feature branch**: check out `jb/fastergs-opensplat-integration` before following this guide. Don't set up off `main` — the current experiment work lives on the feature branch.
 
 ```bash
