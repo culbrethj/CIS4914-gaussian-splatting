@@ -1,3 +1,6 @@
+"""PLY to SPLAT converter CLI. Reads a Gaussian Splatting PLY file and
+writes the compact .splat binary format consumed by the web viewer."""
+
 import math
 import os
 import struct

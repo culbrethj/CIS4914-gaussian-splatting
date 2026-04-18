@@ -51,6 +51,9 @@ looking at the opacity histogram on the Reports page: a run with
 `--shortgs-entropy-weight 0.01` should show more mass near 0 and near 1 and
 less mass in the middle than a baseline run.
 
+> **Warning:** Entropy weight `0.01` collapses the training loss to zero on
+> real scenes. See our internal validation notes before using this weight.
+
 It's not bit-identical to the paper's formulation. If the professor asks
 for that, the next step is patching the Faster-GS CUDA kernel to emit
 per-pixel alpha lists.
