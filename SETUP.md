@@ -2,12 +2,12 @@
 
 Full cross-platform setup for this repo. Quick-start per platform below, then prerequisites, validation steps, and troubleshooting.
 
-**Feature branch**: check out `joshua/fastergs-opensplat-integration` before following this guide. Don't set up off `main` — the current experiment work lives on the feature branch.
+**Feature branch**: check out `jb/fastergs-opensplat-integration` before following this guide. Don't set up off `main` — the current experiment work lives on the feature branch.
 
 ```bash
 git clone <repo-url>
 cd CIS4914-gaussian-splatting
-git checkout joshua/fastergs-opensplat-integration
+git checkout jb/fastergs-opensplat-integration
 ```
 
 ---
@@ -171,7 +171,7 @@ For teammates running VS Code Remote SSH against HPG, or working directly in the
 2. **Check out the feature branch**:
 
    ```bash
-   git checkout joshua/fastergs-opensplat-integration
+   git checkout jb/fastergs-opensplat-integration
    ```
 
 3. **Conda env**: the pinned Faster-GS env already exists on HPG at `/blue/cis4914/joshuabowman/gs_final/envs/fastergs_cuda128`. You can either:
@@ -294,6 +294,6 @@ The variants in the current `experiment_matrix.yaml`:
 
 ## Branch + testing notes
 
-- The feature branch is **`joshua/fastergs-opensplat-integration`**. Check it out before following any of the setup above — don't set up off `main`.
+- The feature branch is **`jb/fastergs-opensplat-integration`**. Check it out before following any of the setup above — don't set up off `main`.
 - **Don't merge to `main`** until the matrix results have been reviewed (planned for Saturday morning).
 - Report setup friction promptly so these docs can improve. If something surprises you or the scripts/README.md lies about a command, raise it — fixing docs costs ~5 min each.
