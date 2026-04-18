@@ -4,6 +4,7 @@ import GaussViewer from './components/GaussViewer'
 import VideoUpload from './components/VideoUpload'
 import Converter from './components/Converter'
 import NavBar from "./components/NavBar";
+import BackendHealthBanner from "./components/BackendHealthBanner";
 import Landing from "./pages/Landing";
 import Documentation from "./pages/Documentation";
 import Reports from "./pages/Reports";
@@ -17,6 +18,7 @@ import "./App.css";
 export default function App() {
   return (
     <div className="app-root">
+      <BackendHealthBanner />
       <NavBar />
       <Routes>
         <Route path="/" element={<Landing />} />

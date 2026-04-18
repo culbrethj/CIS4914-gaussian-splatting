@@ -6,6 +6,44 @@ body, html, #root {
   font-family: sans-serif;
 }
 
+.backend-health-banner {
+  background: #fff3cd;
+  border-bottom: 1px solid #f0c36d;
+  color: #5c3a00;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.backend-health-banner strong {
+  color: #0f172a;
+}
+
+.backend-health-banner code {
+  background: rgba(15, 23, 42, 0.08);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+}
+
+.backend-health-banner button {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid #a56800;
+  color: #5c3a00;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.backend-health-banner button:hover {
+  background: rgba(165, 104, 0, 0.08);
+}
+
 /* Upload card */
 .upload-card {
   background: white;
