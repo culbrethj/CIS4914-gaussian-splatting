@@ -696,6 +696,24 @@ export default function LiveDemos() {
     wsRef.current = ws;
   }
 
+  async function handleCancelJob() {
+    if (!jobId) return;
+    try {
+      const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const errText = await parseApiError(res, "Cancel request failed");
+        setRunMessage(`Cancel failed: ${errText}`);
+        return;
+      }
+      setRunStatus("cancelled");
+      setRunMessage("Job cancelled.");
+    } catch (err) {
+      setRunMessage(`Cancel failed: ${err?.message || err}`);
+    }
+  }
+
   async function handleUpload(event) {
     event.preventDefault();
 
@@ -1081,6 +1099,16 @@ export default function LiveDemos() {
               >
                 {advancedActive ? "Hide Advanced" : "Show Advanced"}
               </button>
+              {isRunning && jobId ? (
+                <button
+                  type="button"
+                  className="secondary danger"
+                  onClick={handleCancelJob}
+                  title="Terminate the local pipeline and request scancel on any running SLURM job"
+                >
+                  Cancel Job
+                </button>
+              ) : null}
             </div>
           </form>
 

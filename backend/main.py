@@ -73,6 +73,12 @@ app.mount("/datasets", StaticFiles(directory=str(datasets_dir)), name="datasets"
 JOB_QUEUES: dict[str, asyncio.Queue[str]] = {}
 JOB_TASKS: dict[str, asyncio.Task] = {}
 JOB_META: dict[str, dict] = {}
+# Local subprocess handles, keyed by job_id. Used by /api/jobs/{id}/cancel
+# to terminate the running pipeline. Populated when a job starts, removed
+# when it exits.
+JOB_PROCS: dict[str, asyncio.subprocess.Process] = {}
+
+SLURM_ID_RE = re.compile(r"Submitted SLURM job id:\s*(\d+)")
 
 # Rolling buffer of the last N log lines per job. The WebSocket stream is
 # ephemeral - once a line is consumed it's gone - so if the user
@@ -420,6 +426,10 @@ async def _read_process_and_stream(proc: asyncio.subprocess.Process, queue: asyn
                 meta["last_log_line"] = text
                 meta["last_log_at"] = _utcnow_iso()
                 meta["_line_count"] = int(meta.get("_line_count", 0)) + 1
+                if "slurm_job_id" not in meta:
+                    match = SLURM_ID_RE.search(text)
+                    if match:
+                        meta["slurm_job_id"] = match.group(1)
                 stage_changed = _update_job_stage_from_line(job_id, text)
                 if stage_changed or meta["_line_count"] % 25 == 0:
                     _refresh_job_preview(job_id)
@@ -427,14 +437,22 @@ async def _read_process_and_stream(proc: asyncio.subprocess.Process, queue: asyn
             await queue.put(text)
 
         await proc.wait()
-        JOB_META[job_id]["status"] = "completed" if proc.returncode == 0 else "failed"
-        JOB_META[job_id]["exit_code"] = proc.returncode
-        JOB_META[job_id]["finished_at"] = _utcnow_iso()
-        JOB_META[job_id]["stage"] = "completed" if proc.returncode == 0 else "failed"
+        meta = JOB_META[job_id]
+        if meta.get("status") == "cancelled":
+            # Cancel endpoint already stamped status + emitted markers.
+            exit_status = "cancelled"
+        else:
+            exit_status = "completed" if proc.returncode == 0 else "failed"
+            meta["status"] = exit_status
+            meta["stage"] = exit_status
+        meta["exit_code"] = proc.returncode
+        meta["finished_at"] = _utcnow_iso()
         _refresh_job_preview(job_id)
-        done_line = f"<<DONE:{proc.returncode}>>"
-        _append_to_job_log_buffer(job_id, done_line)
-        await queue.put(done_line)
+        if exit_status != "cancelled":
+            done_line = f"<<DONE:{proc.returncode}>>"
+            _append_to_job_log_buffer(job_id, done_line)
+            await queue.put(done_line)
+        JOB_PROCS.pop(job_id, None)
         _cleanup_job_state_if_safe(job_id)
     except Exception as exc:
         JOB_META[job_id]["status"] = "failed"
@@ -445,6 +463,7 @@ async def _read_process_and_stream(proc: asyncio.subprocess.Process, queue: asyn
         error_line = f"<<ERROR:{str(exc)}>>"
         _append_to_job_log_buffer(job_id, error_line)
         await queue.put(error_line)
+        JOB_PROCS.pop(job_id, None)
         _cleanup_job_state_if_safe(job_id)
 
 
@@ -633,6 +652,7 @@ async def run_pipeline(payload: dict = Body(...)):
         )
         task = asyncio.create_task(_read_process_and_stream(proc, queue, job_id))
         JOB_TASKS[job_id] = task
+        JOB_PROCS[job_id] = proc
 
         return JSONResponse({"job_id": job_id})
     except HTTPException:
@@ -650,6 +670,64 @@ async def get_job(job_id: str):
     public_meta = dict(meta)
     public_meta.pop("_line_count", None)
     return JSONResponse(public_meta)
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str):
+    meta = JOB_META.get(job_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="unknown job")
+    if meta.get("status") in {"completed", "failed", "cancelled"}:
+        return JSONResponse({"job_id": job_id, "status": meta.get("status")})
+
+    proc = JOB_PROCS.get(job_id)
+    slurm_job_id = meta.get("slurm_job_id")
+    queue = JOB_QUEUES.get(job_id)
+
+    # Stamp cancelled first so the reader task doesn't later overwrite status.
+    meta["status"] = "cancelled"
+    meta["stage"] = "cancelled"
+    meta["finished_at"] = _utcnow_iso()
+
+    marker = "<<CANCEL: job cancelled by user>>"
+    _append_to_job_log_buffer(job_id, marker)
+    if queue is not None:
+        await queue.put(marker)
+
+    # Best-effort remote scancel. The orchestrator is still alive at this
+    # point so it cleans up once it sees the SLURM job exit.
+    if slurm_job_id:
+        try:
+            await asyncio.create_subprocess_exec(
+                "ssh", "hpg", f"scancel {slurm_job_id}",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            note = f"<<CANCEL: requested scancel {slurm_job_id} on HPG>>"
+            _append_to_job_log_buffer(job_id, note)
+            if queue is not None:
+                await queue.put(note)
+        except Exception as exc:
+            logger.warning("scancel failed job_id=%s slurm=%s: %s", job_id, slurm_job_id, exc)
+
+    # Terminate the local orchestrator subprocess. SIGTERM first, then
+    # kill if it doesn't exit in a couple of seconds.
+    if proc is not None and proc.returncode is None:
+        try:
+            proc.terminate()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                proc.kill()
+        except Exception as exc:
+            logger.warning("terminate failed job_id=%s: %s", job_id, exc)
+
+    done_line = "<<DONE:-1>>"
+    _append_to_job_log_buffer(job_id, done_line)
+    if queue is not None:
+        await queue.put(done_line)
+
+    return JSONResponse({"job_id": job_id, "status": "cancelled", "slurm_job_id": slurm_job_id})
 
 
 @app.get("/api/jobs-active")
