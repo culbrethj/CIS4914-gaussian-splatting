@@ -194,7 +194,7 @@ For teammates running VS Code Remote SSH against HPG, or working directly in the
    - Activate the shared env directly:
      ```bash
      module load conda/25.7.0 cuda/12.8.1 gcc/12.2.0
-     conda activate /blue/cis4914/joshuabowman/gs_final/envs/fastergs_cuda128
+     conda activate /blue/cis4914/<username>/gs_final/envs/fastergs_cuda128
      ```
    - Build your own copy following `backend/experiments/faster-gs/README.md` (section "VGGT: one-time HPG setup" + the surrounding env setup). Takes ~15 min for a fresh install.
 
@@ -211,7 +211,7 @@ For teammates running VS Code Remote SSH against HPG, or working directly in the
 
    ```bash
    # Single run against an already-preprocessed dataset on HPG:
-   python backend/scripts/fastergs_pipeline.py test123456 \
+   python backend/scripts/fastergs_pipeline.py <dataset> \
      --use-existing-frames \
      --iters 2000 \
      --seed 1 \
@@ -238,7 +238,7 @@ For teammates running VS Code Remote SSH against HPG, or working directly in the
 
 1. Start backend (`uvicorn main:app --reload`) and frontend (`npm run dev`) in separate terminals.
 2. Open http://localhost:5173.
-3. Go to the Gallery page and pick one of the pre-existing datasets from the dropdown (e.g. `banana`, `truck`, `test123456`).
+3. Go to the Gallery page and pick one of the pre-existing datasets from the dropdown (e.g. `banana`, `truck`).
 4. The splat should load in the viewer within a second or two. You should be able to orbit with the mouse, and the controls panel (top-left of the viewer) should expand when you click its caret.
 
 If all of that works, the local setup is good.
@@ -247,7 +247,7 @@ If all of that works, the local setup is good.
 
 1. SSH to HPG, activate the conda env:
    ```bash
-   conda activate /blue/cis4914/joshuabowman/gs_final/envs/fastergs_cuda128
+   conda activate /blue/cis4914/<username>/gs_final/envs/fastergs_cuda128
    ```
 2. Dry-run the matrix:
    ```bash
@@ -294,7 +294,7 @@ The variants in the current `experiment_matrix.yaml`:
   # Next fastergs_pipeline.py run with --stage setup rebuilds it; ~15 min.
   ```
   The details are in `backend/experiments/faster-gs/README.md`.
-- **OpenSplat binary not found on HPG**: verify `/blue/cis4914/joshuabowman/gs_final/src/OpenSplat/build_b200/opensplat` exists and is executable. If it doesn't, the shared build isn't set up yet — ping the maintainer or build from source per pierotofy/OpenSplat's README.
+- **OpenSplat binary not found on HPG**: verify `/blue/cis4914/<username>/gs_final/src/OpenSplat/build_b200/opensplat` exists and is executable. If it doesn't, the shared build isn't set up yet — ping the maintainer or build from source per pierotofy/OpenSplat's README.
 - **Duo prompts on every ssh call**: make sure `ControlMaster auto` + `ControlPath` + `ControlPersist 8h` are in your `~/.ssh/config` `Host hpg` block (Mac/Linux only — Windows OpenSSH ignores them). Then run `ssh hpg` once interactively, authenticate, and exit; subsequent ssh/scp/rsync reuse the mux for 8 hours.
 - **`pip install` of `lpips` pulls a huge torch wheel**: expected. LPIPS needs torch + torchvision. If you only care about PSNR (the other SSIM/LPIPS metrics are optional), you can comment out the `lpips` line in `requirements.txt` — `metrics_collector.py` lazy-imports it and gracefully skips LPIPS if unavailable.
 
@@ -302,7 +302,7 @@ The variants in the current `experiment_matrix.yaml`:
 
 ## Platform notes
 
-- **OpenSplat and FasterGSCudaBackend are HPG-only.** The prebuilt binaries live under `/blue/cis4914/joshuabowman/gs_final/src/OpenSplat` and the conda env has FasterGSCudaBackend compiled for `sm_89` (L4) + `sm_100` (B200). Local machines (Mac / Windows / Linux laptops) **do not build these** — training jobs are dispatched to HPG via SLURM.
+- **OpenSplat and FasterGSCudaBackend are HPG-only.** The prebuilt binaries live under `/blue/cis4914/<username>/gs_final/src/OpenSplat` and the conda env has FasterGSCudaBackend compiled for `sm_89` (L4) + `sm_100` (B200). Local machines (Mac / Windows / Linux laptops) **do not build these** — training jobs are dispatched to HPG via SLURM.
 - **Frontend gallery reads locally-synced results.** The Faster-GS pipeline fetches `.splat` + metrics back to `backend/hipergator/gs_final/` and `backend/datasets/<dataset>/metrics/` on the machine that kicked off the run; the frontend Gallery page reads those. If you're running the matrix on HPG-direct and want to view results, either fetch them down with `rsync` or run Vite inside VS Code Remote SSH and use port forwarding.
 - **The FasterGS custom rasterizer is currently disabled** on both `hpg-turin` (sm_89) and `hpg-b200` (sm_100) because of an upstream launch-config bug. The fused Adam kernel works on both. See the comment block in `backend/scripts/hpg_gs_final_train.py` above the `sed` lines for the full story.
 
