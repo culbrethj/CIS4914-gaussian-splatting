@@ -42,3 +42,12 @@ backend/binaries/*.dll
 backend/build_logs/
 backend/hipergator/gs_final/
 backend/hipergator/*_latest.splat
+
+# --- Trash quarantine (deep clean review area) ---
+# Local staging for files flagged during cleanup; reviewed by hand before
+# actual deletion. Never committed.
+_trash/
+
+# --- Code audit report (transient) ---
+CODE_AUDIT.md
+ONBOARDING_AUDIT.md
