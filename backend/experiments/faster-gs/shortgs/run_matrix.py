@@ -59,11 +59,6 @@ def parse_matrix(path: Path) -> dict:
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
 
-def build_run_name(dataset: str, config_name: str, seed: int) -> str:
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{dataset}_{config_name}_seed{seed}_{stamp}"
-
-
 def build_env(config_flags: dict, seed: int) -> dict:
     # Map config.flags from the yaml (snake_case) into the SHORTGS_* env
     # vars fastergs_pipeline.py understands.
