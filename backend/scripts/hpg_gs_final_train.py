@@ -62,6 +62,14 @@ DEFAULT_METRICS_PLOTTER_SCRIPT = f"{DEFAULT_REMOTE_ROOT}/src/metrics_plotter.py"
 # cloned/updated to insert the SHORTGS_* technique blocks into train.py.
 # Idempotent; safe to run on every training job.
 DEFAULT_SHORTGS_PATCHES_SCRIPT = f"{DEFAULT_REMOTE_ROOT}/src/shortgs_apply_patches.py"
+# OpenSplat install root on the remote. The SLURM body invokes the
+# prebuilt C++ binary under this dir when --backend opensplat is set.
+# Override with FASTERGS_OPENSPLAT_ROOT (or --opensplat-root) if you've
+# installed OpenSplat somewhere other than $REMOTE_ROOT/src/OpenSplat.
+DEFAULT_OPENSPLAT_ROOT = os.environ.get(
+    "FASTERGS_OPENSPLAT_ROOT",
+    f"{DEFAULT_REMOTE_ROOT}/src/OpenSplat",
+)
 DEFAULT_PINNED_PYTHON = "3.10.14"
 DEFAULT_PINNED_TORCH = "auto"
 DEFAULT_PINNED_TORCHVISION = "auto"
@@ -474,7 +482,7 @@ def build_sbatch_script(
     out_path: str,
     err_path: str,
     backend: str = "fastergs",
-    opensplat_root: str = "/blue/cis4914/joshuabowman/gs_final/src/OpenSplat",
+    opensplat_root: str = DEFAULT_OPENSPLAT_ROOT,
 ) -> str:
     lines = [
         "#!/bin/bash",
@@ -1047,8 +1055,9 @@ def main():
     # runtime linkage).
     parser.add_argument("--backend", choices=["fastergs", "opensplat"], default="fastergs",
                         help="Which trainer to invoke inside the SLURM job.")
-    parser.add_argument("--opensplat-root", default="/blue/cis4914/joshuabowman/gs_final/src/OpenSplat",
-                        help="Remote OpenSplat install dir (contains build/ and build_b200/ binaries).")
+    parser.add_argument("--opensplat-root", default=DEFAULT_OPENSPLAT_ROOT,
+                        help="Remote OpenSplat install dir (contains build/ and build_b200/ binaries). "
+                             "Defaults to FASTERGS_OPENSPLAT_ROOT env var or $REMOTE_ROOT/src/OpenSplat.")
     parser.add_argument("--run-label", default="",
                         help="Short tag injected into the run_tag (e.g. 's1-baseline' or 's1-shortgs-sr-ent'). "
                              "When set, run_tag becomes '<dataset>_<label>_<stage>_<timestamp>'. "
