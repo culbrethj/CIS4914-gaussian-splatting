@@ -18,6 +18,17 @@ git checkout jb/fastergs-opensplat-integration
 - **Windows**: manual flow (PowerShell recommended). See [Windows setup](#windows-setup-manual).
 - **VS Code Remote on HiPerGator**: most things are already built on the cluster. See [HPG-direct setup](#hpg-direct-setup-vs-code-on-hipergator).
 
+## Running tests
+
+Backend test suite (21 tests, runs in under a second):
+
+```bash
+cd backend && pytest tests/
+```
+
+Run this after setup to confirm the install works, and before committing
+backend changes.
+
 ---
 
 ## What you need regardless of platform

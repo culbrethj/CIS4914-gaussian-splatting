@@ -1,24 +1,113 @@
-# CIS4914 Project: End-to-end Gaussian Splatting Implementation
+# Gaussian Splatting Studio — CIS4914 Senior Project
 
-> **Setting this up for the first time?** See **[SETUP.md](SETUP.md)** for the
-> full cross-platform walkthrough (Mac / Linux / Windows / HPG-direct), the
-> `./scripts/setup-local.sh` one-liner, and troubleshooting. Start there — this
-> README has just the short-form commands.
+A web app for turning a phone video into a photorealistic 3D scene you can
+explore in the browser.
 
-### Due Dates
-- ~~**Feb 01: Project Proposal**~~
+Gaussian Splatting is a 2023 rendering technique that produces remarkably
+realistic 3D reconstructions from a set of photos or a video. It's powerful
+but historically hard to use: the reference implementations need CUDA
+hardware, Python environments, and command-line workflows. Our project
+makes it approachable.
+
+## What the app does
+
+1. Upload a video (or pick one of the bundled samples).
+2. The backend extracts frames, runs Structure-from-Motion, and trains a
+   3D Gaussian Splatting model. Training can run locally via OpenSplat or
+   remotely on a GPU cluster via our Faster-GS integration.
+3. The browser renders the resulting 3D scene. Drag to orbit, scroll to
+   zoom, tweak splat scale and camera in real time.
+
+## 10-minute showcase (no training required)
+
+To see what a splat looks like without running the full pipeline:
+
+1. `./scripts/setup-local.sh` (installs deps; requires Python 3.10–3.13)
+2. Terminal 1: `cd frontend && npm run dev`
+3. Terminal 2: `source venv/bin/activate && cd backend && uvicorn main:app --reload`
+4. Open `http://localhost:5173/gallery`, pick `banana` or `truck`, drag to spin.
+
+See [SETUP.md](SETUP.md) for full installation across Mac, Windows, and
+HiPerGator.
+
+## Project structure
+
+Three-stage pipeline (preprocess → SfM → training) wrapped in a FastAPI
+backend and a React frontend.
+
+| Stage | OpenSplat (local) | Faster-GS (remote on HPG) |
+|-------|-------------------|---------------------------|
+| Preprocess | [backend/scripts/preprocessor.py](backend/scripts/preprocessor.py) | same |
+| SfM | [backend/scripts/sfm.py](backend/scripts/sfm.py) | [hpg_gs_final_prepare.py](backend/scripts/hpg_gs_final_prepare.py) (COLMAP) or [hpg_gs_vggt_sfm.py](backend/scripts/hpg_gs_vggt_sfm.py) (VGGT) |
+| Training | [backend/binaries/opensplat](backend/binaries/) | [hpg_gs_final_train.py](backend/scripts/hpg_gs_final_train.py) (SLURM job) |
+
+Frontend pages (under [frontend/src/pages/](frontend/src/pages/)):
+
+- `/` — Landing + feature cards
+- `/demos` — Upload video, run pipeline, watch live logs ([LiveDemos.jsx](frontend/src/pages/LiveDemos.jsx))
+- `/gallery` — Browse trained splats, compare runs side-by-side ([Gallery.jsx](frontend/src/pages/Gallery.jsx))
+- `/reports` — Training metrics and charts ([Reports.jsx](frontend/src/pages/Reports.jsx))
+- `/converter` — Client-side PLY → SPLAT conversion ([Converter.jsx](frontend/src/components/Converter.jsx))
+- `/documentation` — Viewer controls and pipeline overview ([Documentation.jsx](frontend/src/pages/Documentation.jsx))
+
+CLI entry points:
+
+- Full pipeline: `python backend/scripts/fastergs_pipeline.py <dataset> --video <path>`
+- Experiment matrix: `python backend/experiments/faster-gs/shortgs/run_matrix.py`
+
+Deeper docs:
+
+- [SETUP.md](SETUP.md) — cross-platform setup
+- [backend/experiments/faster-gs/README.md](backend/experiments/faster-gs/README.md) — HPG + Faster-GS
+- [backend/experiments/faster-gs/shortgs/README.md](backend/experiments/faster-gs/shortgs/README.md) — Shorter-Splatting ablation harness
+
+## Running tests
+
+```bash
+cd backend && pytest tests/
+```
+
+## Testing and validation
+
+We validated the pipeline by running 18 training experiments across 4
+scenes on NVIDIA B200 GPUs. The experiments cover backend comparison
+(stock Adam vs fused Adam vs OpenSplat), paper-flag ablation from the
+Shorter-Splatting paper, and iteration-count scaling. Findings are
+discussed in the written capstone report.
+
+## Team
+
+_TBD — team roster to be added before final submission._
+
+## Credits
+
+Third-party code and papers this project builds on:
+
+- [3D Gaussian Splatting for Real-Time Radiance Field Rendering](https://github.com/graphdeco-inria/gaussian-splatting) (Kerbl et al., SIGGRAPH 2023)
+- [Faster Gaussian Splatting](https://github.com/nerficg-project/faster-gaussian-splatting) (Hahlbohm et al., CVPR 2026)
+- [OpenSplat](https://github.com/pierotofy/OpenSplat) — production-ready open-source 3DGS training binary
+- [VGGT: Visual Geometry Grounded Transformer](https://github.com/facebookresearch/vggt) — feed-forward SfM alternative
+- Shorter-Splatting training techniques (arXiv 2603.09277) — scale reset, entropy regularization, progressive resolution
+- [COLMAP](https://colmap.github.io/) — Structure-from-Motion pipeline
+- [@react-three/drei](https://github.com/pmndrs/drei) `<Splat>` component — browser splat renderer
+
+---
+
+### Due dates
+
+- ~~Feb 01: Project Proposal~~
 - ~~Feb 06: Week 4 reports~~
 - ~~Feb 13: Week 5 reports~~
-- ~~**Feb 15: Presentation 1 video**~~
+- ~~Feb 15: Presentation 1 video~~
 - ~~Feb 20: Week 6 reports~~
 - ~~Feb 27: Week 7 reports~~
 - ~~Mar 06: Week 8 reports~~
 - ~~Mar 13: Week 9 reports~~
-- ~~**Mar 13: Presentation 2 video**~~
+- ~~Mar 13: Presentation 2 video~~
 - ~~Mar 27: Week 11 reports~~
 - ~~Apr 03: Week 12 reports~~
 - ~~Apr 10: Week 13 reports~~
-- **Apr 14: Senior Showcase**
+- ~~Apr 14: Senior Showcase~~
 - **Apr 21: Final Presentation video**
 
 ---
@@ -27,9 +116,9 @@
 
 Before cloning + running this repo, make sure you have:
 
-- **Python 3.10+** for the backend + pipeline scripts. The HPG conda
-  env is pinned at 3.10.14; matching locally avoids subtle import
-  quirks.
+- **Python 3.10–3.13** for the backend + pipeline scripts. The HPG conda
+  env is pinned at 3.10.14; matching locally avoids subtle import quirks.
+  Python 3.14 is not yet supported (open3d has no 3.14 wheels).
 - **Node.js 20+** for the Vite frontend.
 - **An HPG account on the `cis4914` SLURM allocation** if you want to
   run the Faster-GS backend (the default for training). OpenSplat
@@ -51,7 +140,7 @@ troubleshooting) is documented in detail at
 
 ---
 
-### Frontend Setup and Run
+### Frontend setup and run
 
 NodeJs is required (v20+). Check your Node version.
 
@@ -71,11 +160,12 @@ Run the app.
 ```bash
 npm run dev
 ```
+
 Visit `http://localhost:5173` in browser.
 
---- 
+---
 
-### Backend Setup and Run
+### Backend setup and run
 
 This is needed for the current video upload implementation. Python 3 is required.
 
@@ -106,9 +196,9 @@ API will be available at `http://localhost:8000`.
 
 ### OpenSplat install
 
-Follow platform instructions on [https://github.com/pierotofy/OpenSplat](https://github.com/pierotofy/OpenSplat)
+Follow platform instructions on [https://github.com/pierotofy/OpenSplat](https://github.com/pierotofy/OpenSplat).
 
-Final binaries go in backend/binaries
+Final binaries go in `backend/binaries/`.
 
 ---
 
