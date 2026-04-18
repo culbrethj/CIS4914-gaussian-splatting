@@ -29,6 +29,7 @@ const SPLAT_SCALE_MIN = 0.3;
 const SPLAT_SCALE_MAX = 3.0;
 const SPLAT_SCALE_DEFAULT = 1.0;
 const BYTES_PER_SPLAT = 32;
+const SH_DEGREE = 0;
 
 // Applies the fov state to the R3F default camera. Lives inside the
 // <Canvas> tree so it can pull the camera out via useThree.
@@ -242,7 +243,6 @@ function ControlsPanel({
   splatScale, setSplatScale,
   showGrid, setShowGrid,
   splatCount,
-  shDegree,
   azimuth, setAzimuth,
   elevation, setElevation,
   distance, setDistance,
@@ -410,7 +410,7 @@ function ControlsPanel({
             </div>
             <div className="gauss-controls-stat">
               <span className="gauss-controls-stat-key">SH degree</span>
-              <span className="gauss-controls-stat-val">{shDegree}</span>
+              <span className="gauss-controls-stat-val">{SH_DEGREE}</span>
             </div>
           </div>
         </div>
@@ -430,7 +430,6 @@ export default function GaussViewer({ datasetName = null, splatApiPath = null })
   // gaussian with SH band 0 only, so we derive these at fetch time once
   // instead of instrumenting drei's loader.
   const [splatCount, setSplatCount] = useState(null);
-  const [shDegree] = useState(0);
 
   // Scene controls wired to R3F / Three.js. Defaults mirror Brush.
   const [bgColor, setBgColor] = useState("#000000");
@@ -727,6 +726,7 @@ export default function GaussViewer({ datasetName = null, splatApiPath = null })
       <div style={{ position: "relative", marginBottom: 8, minHeight: 36 }}>
         <div style={{ position: "absolute", left: 8, top: 8, zIndex: 5 }}>
           <button
+            type="button"
             onClick={() => setFreecamEnabled((v) => !v)}
             style={{
               padding: "6px 12px",
@@ -757,7 +757,6 @@ export default function GaussViewer({ datasetName = null, splatApiPath = null })
           splatScale={splatScale} setSplatScale={setSplatScale}
           showGrid={showGrid} setShowGrid={setShowGrid}
           splatCount={splatCount}
-          shDegree={shDegree}
           azimuth={azimuth} setAzimuth={setAzimuth}
           elevation={elevation} setElevation={setElevation}
           distance={distance} setDistance={setDistance}
