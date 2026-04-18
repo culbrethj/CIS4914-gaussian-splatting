@@ -203,7 +203,7 @@ def parse_opensplat_log(log_text: str) -> tuple[list[dict], float | None, int | 
                 pass
 
     # Always keep the final iteration as a datapoint even when it doesn't
-    # land on the stride boundary — matches the fastergs behavior.
+    # land on the stride boundary. Matches the fastergs behavior.
     if last_iter is not None and last_iter not in records:
         # Find the last loss we saw for any nearby iteration; fall back to
         # scanning the tail of the log for the literal final step.
@@ -518,7 +518,7 @@ def collect_opensplat(
     # Parse the "Step N: loss (pct%)" trajectory and layer per-checkpoint
     # gaussian counts on top so the frontend gets a dense loss curve plus
     # the same fastergs-style summary fields. PSNR/SSIM/LPIPS stay null for
-    # now — OpenSplat doesn't evaluate against held-out views during training.
+    # now; OpenSplat doesn't evaluate against held-out views during training.
     step_records, last_psnr, last_iter = parse_opensplat_log(log_text)
 
     # OpenSplat writes the PLY to one of two places depending on how it was
@@ -597,7 +597,7 @@ def collect_opensplat(
         "total_wall_seconds": wall_seconds,
     }
 
-    # Histograms from the final PLY — Reports page uses these to compare
+    # Histograms from the final PLY. Reports page uses these to compare
     # scale/opacity distributions across backends just like it does for the
     # fastergs variants.
     if latest_ply_path is not None and latest_ply_path.is_file():

@@ -162,12 +162,12 @@ def run_sfm(dataset_path: Path):
 
     sparse_ok = sparse_dir.is_dir() and any(sparse_dir.iterdir())
     if sparse_ok and fingerprints_match(sfm_fp, prep_fp):
-        logger.info("SfM cache hit — reusing existing sparse model (preprocess settings match)")
+        logger.info("SfM cache hit: reusing existing sparse model (preprocess settings match)")
         return
     if sparse_ok and sfm_fp:
         reasons = diff_fingerprints(sfm_fp, prep_fp)
         for reason in reasons:
-            logger.info("SfM cache invalidated — %s", reason)
+            logger.info("SfM cache invalidated: %s", reason)
 
     try:
         try:
@@ -349,7 +349,7 @@ def run_prepare(
         and count_images(images_path) >= MIN_PROCESSED_FRAMES
     ):
         logger.info(
-            "Preprocessing cache hit — reusing %d images (fps=%s downscale=%s blur=%s duplicate=%s max_width=%s)",
+            "Preprocessing cache hit: reusing %d images (fps=%s downscale=%s blur=%s duplicate=%s max_width=%s)",
             count_images(images_path), fps_for_fingerprint, downscale, blur_threshold, duplicate_threshold, max_width,
         )
         return
@@ -358,7 +358,7 @@ def run_prepare(
     if prior_fp:
         reasons = diff_fingerprints(prior_fp, new_fp)
         for reason in reasons:
-            logger.info("Preprocessing cache invalidated — %s", reason)
+            logger.info("Preprocessing cache invalidated: %s", reason)
 
     prepare_start = time.perf_counter()
 

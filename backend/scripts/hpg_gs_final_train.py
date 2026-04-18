@@ -303,7 +303,7 @@ def build_opensplat_sbatch_script(
 
     # OpenSplat doesn't read any SHORTGS_* vars, but we forward SHORTGS_SEED
     # so the metrics summary can still record which seed the matrix asked
-    # for (value is informational only — OpenSplat is non-seedable).
+    # for (value is informational only; OpenSplat is non-seedable).
     seed_forward = f"export SHORTGS_SEED={shlex.quote(os.environ.get('SHORTGS_SEED', ''))}"
 
     script = f"""#!/bin/bash
@@ -331,7 +331,7 @@ METRICS_DATASET_LABEL={shlex.quote(dataset_label_for_metrics)}
 
 # Libtorch is pulled from the existing fastergs_cuda128 env (same env we
 # linked OpenSplat against at build time). If the env is missing we fail
-# fast — no point running with a different torch ABI.
+# fast; no point running with a different torch ABI.
 TORCH_LIB="$ENV_PREFIX/lib/python3.10/site-packages/torch/lib"
 if [ ! -d "$TORCH_LIB" ]; then
   echo "[error] torch lib dir missing: $TORCH_LIB" >&2
@@ -363,7 +363,7 @@ if [ ! -d "$SCENE/images" ] || [ ! -d "$SCENE/sparse/0" ]; then
   exit 53
 fi
 
-# Preflight reuses the same script the fastergs branch uses — it just
+# Preflight reuses the same script the fastergs branch uses. It just
 # asserts COLMAP sparse/0 + images/ exist and has a minimum image count.
 if [ -f "$PREFLIGHT" ]; then
   PY_CMD="$(command -v python3 || command -v python || true)"
@@ -433,7 +433,7 @@ if [ -f "$METRICS_COLLECTOR" ]; then
   fi
 fi
 
-# Plots are best-effort — matplotlib might not be on the system python.
+# Plots are best-effort; matplotlib might not be on the system python.
 if [ -f "$METRICS_PLOTTER" ]; then
   PY_CMD="$(command -v python3 || command -v python || true)"
   if [ -n "$PY_CMD" ]; then
@@ -786,7 +786,7 @@ run_training() {{
   #     architectures). 1 = flip the source line to True and train
   #     with FasterGS's fused Adam kernel. Verified working on B200
   #     (SLURM 30208346: 2000 iters, PSNR 30.46, 16s wall) via the
-  #     multi-arch "8.9;10.0" FasterGSCudaBackend wheel — which means
+  #     multi-arch "8.9;10.0" FasterGSCudaBackend wheel, which means
   #     it should also work on L4, but we only sanity-check that in
   #     the Apr 17 smoke tests.
   if [ -f gaussian_renderer/__init__.py ]; then
@@ -1207,7 +1207,7 @@ def main():
         ) from exc
 
     if args.backend == "opensplat":
-        # OpenSplat needs none of the Inria / conda plumbing — just cuda +
+        # OpenSplat needs none of the Inria / conda plumbing: just cuda +
         # gcc + opencv modules and libtorch runtime from the existing env.
         sbatch_text = build_opensplat_sbatch_script(
             remote_root=root,

@@ -176,7 +176,7 @@ def build_sbatch_script(
     # make sure the output is actually what the trainer expects.
     #
     # COLMAP runs inside an apptainer (singularity) container at
-    # /apps/colmap/3.11/container.sif — HPG login nodes don't have COLMAP on
+    # /apps/colmap/3.11/container.sif. HPG login nodes don't have COLMAP on
     # the PATH directly. The --bind mounts /blue so the container sees our
     # dataset dirs.
     lines = [

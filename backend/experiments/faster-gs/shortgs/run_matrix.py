@@ -90,7 +90,7 @@ def invoke_pipeline(*, dataset: str, video: Path, iterations: int, partition: st
     ]
     # shortgs + fastergs-adam flags only apply to the fastergs backend.
     # OpenSplat is a separate C++ trainer that doesn't know about them, so
-    # drop them here rather than errorring — lets the same yaml row carry
+    # drop them here rather than errorring. Lets the same yaml row carry
     # flags for mixed backends without surprising the user.
     if backend == "fastergs":
         if config_flags.get("shortgs_scale_reset_every"):

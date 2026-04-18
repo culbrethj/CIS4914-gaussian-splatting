@@ -846,8 +846,8 @@ async def list_dataset_runs(name: str):
       - A metrics/<run_tag>/ subdir with a matching .splat fetched back
         to backend/hipergator/gs_final/<run_tag>.splat
       - A dataset-root splat (e.g. banana/banana.splat) that isn't a
-        copy of any HPG run — treated as a "showcase" single-run entry
-        so pre-committed demo scenes still appear in the picker.
+        copy of any HPG run (treated as a "showcase" single-run entry
+        so pre-committed demo scenes still appear in the picker).
     Runs are sorted oldest-first and assigned monotonic run_number
     values (1, 2, 3...) within their dataset so the UI can display
     "Run N" labels consistently across Gallery, Reports, and LiveDemos.

@@ -267,7 +267,7 @@ def main():
     ssh_base = ["ssh", "-p", str(args.port), *(["-i", args.identity_file] if args.identity_file else []), *ssh_opts]
 
     # Fingerprint includes sfm_method so the COLMAP and VGGT caches don't
-    # collide — switching methods always triggers a fresh SfM pass, even
+    # collide. Switching methods always triggers a fresh SfM pass, even
     # when the preprocessing settings are identical.
     remote_sfm_fp_path = dataset_dir / "remote_sfm_fingerprint.json"
     current_fp = build_fingerprint(
@@ -299,7 +299,7 @@ def main():
         )
         if "ok" in (check.stdout or ""):
             log(
-                "INFO: SfM cache hit on HPG — reusing existing sparse model "
+                "INFO: SfM cache hit on HPG: reusing existing sparse model "
                 f"(fps={args.fps} downscale={args.downscale} blur={args.blur_threshold} "
                 f"duplicate={args.duplicate_threshold} max_width={args.max_width})"
             )
@@ -309,7 +309,7 @@ def main():
     elif prior_remote_fp:
         reasons = diff_fingerprints(prior_remote_fp, current_fp)
         for reason in reasons:
-            log(f"INFO: SfM cache invalidated — {reason}")
+            log(f"INFO: SfM cache invalidated: {reason}")
 
     if skip_remote_prepare:
         log("INFO: Skipping image upload and HPG SfM (cached)")

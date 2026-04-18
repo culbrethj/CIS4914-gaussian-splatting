@@ -19,8 +19,8 @@ import sys
 from pathlib import Path
 
 # Local version of the undistort step. Useful for testing the Faster-GS
-# pipeline on a laptop without bouncing to HiPerGator — just run colmap
-# image_undistorter here and then preflight to check the result.
+# pipeline on a laptop without bouncing to HiPerGator (just run colmap
+# image_undistorter here and then preflight to check the result).
 # Not used in the web flow (that goes through hpg_gs_final_prepare.py instead).
 try:
     from .fastergs_preflight import inspect_dataset, print_human_report
