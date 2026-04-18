@@ -7,8 +7,8 @@
 # Defaults: 2 datasets × 3 seeds × 5 configs = 30 runs.
 
 datasets:
-  - can
-  - garden
+  - snowboard
+  - bike
 
 seeds:
   - 0

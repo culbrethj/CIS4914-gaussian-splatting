@@ -1,3 +1,6 @@
+# Third-party techniques used in this file:
+#  - Shorter-Splatting paper (scale_reset, entropy, progressive flags)
+#    arXiv 2603.09277. This file drives the paper-validation matrix.
 """
 Shorter-Splatting paper experiment matrix runner.
 
@@ -8,7 +11,7 @@ so ``compare.py`` can aggregate without scanning every dataset dir.
 
 Config YAML shape (see ``experiment_matrix.yaml``)::
 
-  datasets: [can, garden]
+  datasets: [snowboard, bike]
   seeds:    [0, 1, 2]
   base_iterations: 10000
   partition: hpg-turin
