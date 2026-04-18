@@ -6,9 +6,11 @@ Generates + uploads an sbatch script that:
   2. Pulls the Inria Faster-GS fork (git clone/pull) into ``$REPO_DIR``.
   3. Runs ``shortgs_apply_patches.py`` to insert the paper's techniques
      into ``train.py`` behind ``SHORTGS_*`` env vars (no-op when unset).
-  4. Tees ``python train.py`` stdout to ``$TRAIN_LOG`` and runs at the
-     dense eval schedule (every ``iterations/10`` iters) so the Reports
-     page gets a real PSNR + gaussian-count curve.
+  4. Tees ``python train.py`` stdout to ``$TRAIN_LOG`` and runs at
+     ``EVAL_STRIDE=500`` for both ``--test_iterations`` and
+     ``--save_iterations`` so the Reports page gets a PSNR + gaussian-
+     count sample every 500 steps. Loss is denser (every 100 iters,
+     parsed from tqdm by ``metrics_collector.py``).
   5. Converts the final ``point_cloud.ply`` -> ``.splat`` via ``converter.py``.
   6. Collects structured metrics with ``metrics_collector.py`` and renders
      per-metric PNGs with ``metrics_plotter.py``.
