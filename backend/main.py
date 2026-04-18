@@ -1,3 +1,21 @@
+"""FastAPI entry point for the Gaussian Splatting Studio backend.
+
+Routes are grouped by concern:
+    - Upload: /api/upload accepts a video and writes it into a dataset dir.
+    - Jobs: /api/run starts a pipeline run; /api/jobs/* polls status and
+      drains per-job log buffers. Live logs stream over a WebSocket at
+      /ws/jobs/{job_id}.
+    - Datasets: /api/datasets, /api/datasets/{name}/runs expose the
+      prepared datasets and the training runs attached to each.
+    - Health: /api/health is a cheap liveness probe used by the frontend
+      banner to detect a missing backend.
+
+Pipeline orchestration lives in two scripts this file shells out to:
+    - backend/scripts/pipeline.py for the local OpenSplat backend
+    - backend/scripts/fastergs_pipeline.py for the remote Faster-GS backend
+      on HiPerGator
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -494,6 +512,9 @@ async def run_pipeline(payload: dict = Body(...)):
         else:
             video_path = _pick_dataset_video_file(params["dataset"])
 
+        # See backend/scripts/pipeline.py for preprocessing + local OpenSplat
+        # orchestration. See backend/scripts/fastergs_pipeline.py for HPG
+        # dispatch (remote SfM + SLURM training).
         pipeline_path = HERE / "scripts/pipeline.py"
         if not pipeline_path.exists():
             raise HTTPException(status_code=500, detail="pipeline.py not found on server")
