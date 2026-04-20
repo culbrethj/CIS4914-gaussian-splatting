@@ -1098,10 +1098,12 @@ export default function LiveDemos() {
 
           {advancedActive ? (
             <div className="advanced-panel">
-              {/* When the selected dataset has a cached preprocess + SfM
-                  fingerprint, surface it so users know a rerun with the
-                  same preprocessing settings will skip the ~10-min SfM. */}
-              {prepStatus?.has_remote_sfm_fingerprint || prepStatus?.has_prep_fingerprint ? (
+              {/* Show the "SfM cached" note only when SfM actually
+                  finished and its outputs are still present. Server
+                  computes this via _is_sfm_cached; don't OR in the
+                  prep fingerprint, since that gets written mid-pipeline
+                  before SfM has even started. */}
+              {prepStatus?.has_sfm_cached ? (
                 <div className="sfm-cache-note">
                   <span className="sfm-cache-badge">SfM cached</span>
                   <span className="sfm-cache-text">

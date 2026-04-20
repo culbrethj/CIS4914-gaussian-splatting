@@ -294,6 +294,36 @@ def _to_datasets_url(path: Path) -> str | None:
     return f"/datasets/{rel.as_posix()}"
 
 
+def _has_local_sparse_outputs(dataset_dir: Path) -> bool:
+    # COLMAP's local SfM writes cameras.bin / images.bin / points3D.bin
+    # under sparse/0/. VGGT on HPG exports the same three-file layout.
+    # If any is missing the reconstruction is incomplete, even if a
+    # fingerprint file happens to be lying around.
+    sparse0 = dataset_dir / "sparse" / "0"
+    return all(
+        (sparse0 / name).is_file()
+        for name in ("cameras.bin", "images.bin", "points3D.bin")
+    )
+
+
+def _is_sfm_cached(dataset_dir: Path) -> bool:
+    # Only report "cached" when an SfM stage actually finished AND its
+    # outputs are still there. A cancel-mid-SfM run can leave stale
+    # prep_fingerprint.json behind; that file is a preprocess marker, not
+    # an SfM marker, so it must never count toward the SfM cache.
+    remote_fp = dataset_dir / "remote_sfm_fingerprint.json"
+    if remote_fp.is_file():
+        # Remote (Faster-GS COLMAP or VGGT) path. The sparse binaries live
+        # on HPG, so the fingerprint is the only local proof that the
+        # remote SfM completed. fastergs_pipeline.py only writes this
+        # after the remote job reports success.
+        return True
+    local_fp = dataset_dir / "sfm_fingerprint.json"
+    if local_fp.is_file() and _has_local_sparse_outputs(dataset_dir):
+        return True
+    return False
+
+
 def _find_root_splat(dataset_dir: Path) -> Path | None:
     preferred = dataset_dir / "splat.splat"
     if preferred.exists() and preferred.is_file():
@@ -804,8 +834,10 @@ async def list_datasets():
                       (same floor the trainer enforces)
       has_raw_video   a video file was previously uploaded (lets the
                       frontend know a re-extract is still an option)
-      has_sfm         a SfM fingerprint (local or remote) is on disk,
-                      so a rerun with matching settings will skip SfM
+      has_sfm         SfM stage actually finished and its outputs are
+                      still on disk, so a rerun with matching settings
+                      will skip SfM. A half-finished run (cancel mid-
+                      preprocess or mid-SfM) does NOT count.
       run_count       number of training runs we've fetched back for
                       this dataset (counts metrics/ subdirs)
     """
@@ -838,10 +870,7 @@ async def list_datasets():
         except OSError:
             has_raw_video = False
 
-        has_sfm = any(
-            (d / name).is_file()
-            for name in ("remote_sfm_fingerprint.json", "sfm_fingerprint.json", "prep_fingerprint.json")
-        )
+        has_sfm = _is_sfm_cached(d)
 
         run_count = 0
         metrics_dir = d / "metrics"
@@ -880,6 +909,10 @@ async def get_dataset_prep_status(name: str):
         has_prep_fingerprint: bool,
         has_sfm_fingerprint: bool,
         has_remote_sfm_fingerprint: bool,
+        has_sfm_cached: bool,   # true only when SfM finished AND its
+                                # outputs are still on disk; the frontend
+                                # should use this, not the raw fingerprint
+                                # flags, for any "cached" UI.
         fingerprint: <fields> | null,
       }
     """
@@ -911,6 +944,7 @@ async def get_dataset_prep_status(name: str):
         "has_prep_fingerprint": prep is not None,
         "has_sfm_fingerprint": sfm is not None,
         "has_remote_sfm_fingerprint": remote is not None,
+        "has_sfm_cached": _is_sfm_cached(d),
         "fingerprint": preview,
     })
 
