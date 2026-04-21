@@ -69,7 +69,7 @@ cd backend && pytest tests/
 
 ## Testing and validation
 
-We validated the pipeline by running 18 training experiments across 4
+We validated the pipeline by running lots of training experiments across 4
 scenes on NVIDIA B200 GPUs. The experiments cover backend comparison
 (stock Adam vs fused Adam vs OpenSplat), paper-flag ablation from the
 Shorter-Splatting paper, and iteration-count scaling. Findings are
@@ -77,7 +77,10 @@ discussed in the written capstone report.
 
 ## Team
 
-_TBD — team roster to be added before final submission._
+Jackson Culbreth - Team Leader
+Joshua Bowman - Scrum Master
+Jackson Kelly - Developer
+Nicolas Desmornes - Developer
 
 ## Credits
 
@@ -87,7 +90,7 @@ Third-party code and papers this project builds on:
 - [Faster Gaussian Splatting](https://github.com/nerficg-project/faster-gaussian-splatting) (Hahlbohm et al., CVPR 2026)
 - [OpenSplat](https://github.com/pierotofy/OpenSplat) — production-ready open-source 3DGS training binary
 - [VGGT: Visual Geometry Grounded Transformer](https://github.com/facebookresearch/vggt) — feed-forward SfM alternative
-- Shorter-Splatting training techniques (arXiv 2603.09277) — scale reset, entropy regularization, progressive resolution
+- Shorter-Splatting training techniques ([arXiv 2603.09277](http://arxiv.org/pdf/2603.09277)) — scale reset, entropy regularization, progressive resolution
 - [COLMAP](https://colmap.github.io/) — Structure-from-Motion pipeline
 - [@react-three/drei](https://github.com/pmndrs/drei) `<Splat>` component — browser splat renderer
 
