@@ -7,12 +7,9 @@ Full cross-platform setup for this repo. Quick-start per platform below, then pr
 > 3.14, install 3.12 first: `brew install python@3.12` on macOS, or
 > `pyenv install 3.12.7 && pyenv local 3.12.7`. See Troubleshooting.
 
-**Feature branch**: check out `jb/fastergs-opensplat-integration` before following this guide. Don't set up off `main` — the current experiment work lives on the feature branch.
-
 ```bash
 git clone <repo-url>
 cd CIS4914-gaussian-splatting
-git checkout jb/fastergs-opensplat-integration
 ```
 
 ---
@@ -184,13 +181,8 @@ Open http://localhost:5173.
 For teammates running VS Code Remote SSH against HPG, or working directly in the cluster shell, and skipping the local frontend.
 
 1. **SSH into HPG**, clone the repo into your own `/blue/cis4914/<gatorlink>/` workspace (or reuse `/blue/cis4914/joshuabowman/` for read-only access to shared artifacts).
-2. **Check out the feature branch**:
 
-   ```bash
-   git checkout jb/fastergs-opensplat-integration
-   ```
-
-3. **Conda env**: the pinned Faster-GS env already exists on HPG at `/blue/cis4914/joshuabowman/gs_final/envs/fastergs_cuda128`. You can either:
+2. **Conda env**: the pinned Faster-GS env already exists on HPG at `/blue/cis4914/joshuabowman/gs_final/envs/fastergs_cuda128`. You can either:
    - Activate the shared env directly:
      ```bash
      module load conda/25.7.0 cuda/12.8.1 gcc/12.2.0
@@ -198,7 +190,7 @@ For teammates running VS Code Remote SSH against HPG, or working directly in the
      ```
    - Build your own copy following `backend/experiments/faster-gs/README.md` (section "VGGT: one-time HPG setup" + the surrounding env setup). Takes ~15 min for a fresh install.
 
-4. **Override defaults if your workspace differs from `/blue/cis4914/joshuabowman/gs_final`**:
+3. **Override defaults if your workspace differs from `/blue/cis4914/joshuabowman/gs_final`**:
 
    ```bash
    export FASTERGS_REMOTE_ROOT=/blue/cis4914/<your-gatorlink>/gs_final
@@ -207,7 +199,7 @@ For teammates running VS Code Remote SSH against HPG, or working directly in the
 
    All HPG paths in the pipeline scripts default via `FASTERGS_REMOTE_ROOT` + `FASTERGS_OPENSPLAT_ROOT`, so exporting these is usually all you need.
 
-5. **Run experiments** directly (no frontend needed):
+4. **Run experiments** directly (no frontend needed):
 
    ```bash
    # Single run against an already-preprocessed dataset on HPG:
@@ -226,9 +218,9 @@ For teammates running VS Code Remote SSH against HPG, or working directly in the
 
    > **Note**: `fastergs_pipeline.py` takes `dataset` as a positional arg (no `--dataset`), and the flag is `--iters` (not `--iterations`). `--use-existing-frames` reuses the preprocessed `images/` dir on disk so you don't need a video file.
 
-6. **Results land** locally (to the machine running `fastergs_pipeline.py`) under `backend/datasets/<dataset>/` and `backend/hipergator/gs_final/<run_tag>.splat`. Run the matrix from HPG → results live in `$FASTERGS_REMOTE_ROOT/results/`. Run it from your laptop that's SSHed into HPG → results sync back to your laptop via `scp`/`rsync` steps inside the pipeline.
+5. **Results land** locally (to the machine running `fastergs_pipeline.py`) under `backend/datasets/<dataset>/` and `backend/hipergator/gs_final/<run_tag>.splat`. Run the matrix from HPG → results live in `$FASTERGS_REMOTE_ROOT/results/`. Run it from your laptop that's SSHed into HPG → results sync back to your laptop via `scp`/`rsync` steps inside the pipeline.
 
-7. **To view results in the gallery**, the frontend is optional — if you want it, start Vite on your laptop as usual and point `/api/datasets/<name>/splat` + `/api/hpg/gs_final/<tag>.splat/splat` at the locally-fetched artifacts. Port-forwarding VS Code Remote SSH's 5173/8000 tunnels back to localhost works too.
+6. **To view results in the gallery**, the frontend is optional — if you want it, start Vite on your laptop as usual and point `/api/datasets/<name>/splat` + `/api/hpg/gs_final/<tag>.splat/splat` at the locally-fetched artifacts. Port-forwarding VS Code Remote SSH's 5173/8000 tunnels back to localhost works too.
 
 ---
 
@@ -308,8 +300,6 @@ The variants in the current `experiment_matrix.yaml`:
 
 ---
 
-## Branch + testing notes
+## Notes
 
-- The feature branch is **`jb/fastergs-opensplat-integration`**. Check it out before following any of the setup above — don't set up off `main`.
-- `main` should only receive the feature branch after the matrix results have been reviewed.
 - Report setup friction promptly so these docs can improve. If something surprises you or the scripts/README.md lies about a command, raise it — fixing docs costs ~5 min each.
