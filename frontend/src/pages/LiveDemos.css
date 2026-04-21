@@ -179,6 +179,13 @@ button.mode-tab:disabled {
   gap: 8px;
 }
 
+/* Give the Run Advanced button some breathing room below the
+   Shorter-Splatting panel. The Simple-mode button-row elsewhere on
+   the page keeps the default zero margin. */
+.advanced-panel .button-row {
+  margin-top: 18px;
+}
+
 button {
   border: none;
   border-radius: 9px;

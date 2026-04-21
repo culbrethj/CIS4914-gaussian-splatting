@@ -1256,7 +1256,7 @@ export default function LiveDemos() {
                 <div className="experiment-head">
                   <h4>Shorter-Splatting experiments <span className="advanced-section-sub">training only, cached SfM reused</span></h4>
                   <span className="experiment-sub">
-                    Baseline unless a technique is toggled on. See <code>/reports</code> to compare runs.
+                    Baseline unless a technique is toggled on. Visit the Reports page to compare runs.
                   </span>
                 </div>
 
