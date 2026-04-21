@@ -58,3 +58,12 @@ _trash/
 # --- Code audit report (transient) ---
 CODE_AUDIT.md
 ONBOARDING_AUDIT.md
+PREPROCESSING_DEFAULTS.md
+
+# --- Internal experiment + planning notes (not shipped) ---
+# Running logs and plan documents for the Shorter-Splatting validation
+# matrix and VGGT SfM bringup. Kept local for the authors' reference;
+# only README-style docs get tracked.
+backend/experiments/faster-gs/GS_FINAL_PLAN.md
+backend/experiments/faster-gs/VGGT_OVERNIGHT_LOG.md
+backend/experiments/faster-gs/shortgs/ANALYSIS_REPORT.md
