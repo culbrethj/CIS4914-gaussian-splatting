@@ -8,19 +8,19 @@ import { isStaticMode } from "../config/showcase";
 import "./LiveDemos.css";
 
 // Persistent banner rendered at the top of the Live Demos page in the
-// GitHub Pages build. Not dismissible - the grader needs to see it every
+// GitHub Pages build. Not dismissible - visitors need to see it every
 // time they land on the page so they understand why controls are disabled.
-// Sits above the main demo grid rather than replacing it, so the grader can
-// still inspect the UI shape + actually drive the Viewer (which reads
+// Sits above the main demo grid rather than replacing it, so visitors can
+// still inspect the UI shape and actually drive the Viewer (which reads
 // committed showcase splats via the static shim).
 function LiveDemosStaticPreviewBanner() {
   return (
     <div className="live-demos-static-banner" role="status">
       <strong>This is a UI preview.</strong>
       <span>
-        Live Demos require the local FastAPI backend and HiPerGator access -
-        see README for local setup. Inputs and buttons are disabled in this
-        hosted version.
+        Live Demos require the local FastAPI backend, plus OpenSplat
+        running locally or HiPerGator access. See README for local setup.
+        Inputs and buttons are disabled.
       </span>
     </div>
   );
@@ -120,7 +120,7 @@ function logKind(line) {
  *   4. Viewer panel (lines 1424-1496): renders the published splat via
  *      GaussViewer once the run finishes.
  */
-// Outer shell: always renders the real interactive UI so the grader sees
+// Outer shell: always renders the real interactive UI so visitors see
 // the actual form, log panel, and viewer shapes. In the GitHub Pages build
 // we pass staticMode=true so the interactive component disables every
 // control that would fire a backend call and shows a persistent preview
@@ -1026,8 +1026,8 @@ function LiveDemosInteractive({ staticMode = false }) {
           form control (inputs, selects, buttons) in one shot. Only kicks in
           when staticMode is true; in real deploys this fieldset stays
           enabled and the existing per-control disabled={isBusy} logic keeps
-          running unchanged. Viewer panel lives outside the fieldset so the
-          grader can still interact with the Gallery-style splat renderer. */}
+          running unchanged. Viewer panel lives outside the fieldset so
+          visitors can still interact with the Gallery-style splat renderer. */}
       <fieldset
         className={`live-demos-fieldset${staticMode ? " is-static-disabled" : ""}`}
         disabled={staticMode}

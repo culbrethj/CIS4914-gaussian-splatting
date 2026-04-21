@@ -625,7 +625,7 @@ button:disabled {
 
 /* Persistent "UI preview" banner shown only in the GitHub Pages build.
    Visually distinct from the in-page status pills - amber band across the
-   top of the interactive region so the grader can't miss it. */
+   top of the interactive region so it can't be missed. */
 .live-demos-static-banner {
   display: flex;
   flex-wrap: wrap;
