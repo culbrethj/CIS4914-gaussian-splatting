@@ -67,3 +67,34 @@ PREPROCESSING_DEFAULTS.md
 backend/experiments/faster-gs/GS_FINAL_PLAN.md
 backend/experiments/faster-gs/VGGT_OVERNIGHT_LOG.md
 backend/experiments/faster-gs/shortgs/ANALYSIS_REPORT.md
+
+# --- Showcase datasets: carve out committable artifacts ---
+# The top-level `backend/datasets` rule (above) ignores everything
+# inside. For cone, snowboard, and gator_statue we un-ignore only
+# the final splat + the metrics tree (jsonl + summary + per-metric
+# PNGs) so graders get a working Gallery and Reports page on clone.
+# Pattern per gitignore(5): first re-include the parent dir so git
+# will descend, then re-ignore all direct children, then negate the
+# specific artifacts we want. Large intermediate artifacts (images/,
+# raw/, video/, *.ply, sparse/, database.db, posthoc_eval/) stay
+# ignored by their own rules above.
+!backend/datasets/
+backend/datasets/*
+
+!backend/datasets/cone/
+backend/datasets/cone/*
+!backend/datasets/cone/splat.splat
+!backend/datasets/cone/metrics/
+!backend/datasets/cone/metrics/**
+
+!backend/datasets/snowboard/
+backend/datasets/snowboard/*
+!backend/datasets/snowboard/splat.splat
+!backend/datasets/snowboard/metrics/
+!backend/datasets/snowboard/metrics/**
+
+!backend/datasets/gator_statue/
+backend/datasets/gator_statue/*
+!backend/datasets/gator_statue/splat.splat
+!backend/datasets/gator_statue/metrics/
+!backend/datasets/gator_statue/metrics/**
