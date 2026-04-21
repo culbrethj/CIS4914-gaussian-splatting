@@ -56,7 +56,7 @@ export default function VideoUpload() {
 
   return (
     <div className="upload-card">
-      <h2 className="upload-title">UPLOAD VIDEO</h2>
+      <h2 className="upload-title">Upload Video</h2>
       <p className="upload-subtitle">Supported formats: MP4, MOV, AVI</p>
 
       <label className="upload-dropzone">

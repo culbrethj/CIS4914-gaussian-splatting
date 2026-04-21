@@ -25,7 +25,7 @@ To see what a splat looks like without running the full pipeline:
 1. `./scripts/setup-local.sh` (installs deps; requires Python 3.10–3.13)
 2. Terminal 1: `cd frontend && npm run dev`
 3. Terminal 2: `source venv/bin/activate && cd backend && uvicorn main:app --reload`
-4. Open `http://localhost:5173/gallery`, pick `banana` or `truck`, drag to spin.
+4. Open `http://localhost:5173/gallery`, pick `cone`, `snowboard`, or `gator_statue`, drag to spin.
 
 See [SETUP.md](SETUP.md) for full installation across Mac, Windows, and
 HiPerGator.

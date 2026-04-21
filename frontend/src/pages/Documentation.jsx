@@ -80,9 +80,9 @@ export default function Documentation() {
           very accurate on natural scenes. VGGT is a feed-forward neural
           network that estimates camera poses in under a minute on a GPU;
           it also handles reflective and transparent surfaces that COLMAP's
-          classical feature matching gives up on. The kitchen blender in
-          our test set registered only 2 of 45 frames under COLMAP but all
-          45 under VGGT, so the choice matters in practice.
+          classical feature matching gives up on. A kitchen-blender scene we
+          ran in early testing registered only 2 of 45 frames under COLMAP
+          but all 45 under VGGT, so the choice matters in practice.
         </p>
 
         <h3 style={s.h3}>d. Gaussian Splatting training</h3>
@@ -277,10 +277,10 @@ export default function Documentation() {
         <ul style={s.ul}>
           <li>
             COLMAP's feature matching breaks down on reflective or
-            transparent surfaces. Our kitchen-blender test scene (45
-            frames) only registered 2 frames under COLMAP but all 45
-            under VGGT; switching SfM methods is the right move on scenes
-            like that.
+            transparent surfaces. A kitchen-blender scene we ran in early
+            testing (45 frames) only registered 2 frames under COLMAP but
+            all 45 under VGGT; switching SfM methods is the right move on
+            scenes like that.
           </li>
           <li>
             OpenSplat doesn't emit per-iteration evaluation renders, so
@@ -297,10 +297,12 @@ export default function Documentation() {
             fused-Adam optimizer from Faster-GS still works.
           </li>
           <li>
-            Training requires a HiPerGator allocation. Without HPG access
-            a user can still upload a PLY to the Converter page and view
-            any pre-trained splats on the Gallery page, but cannot kick
-            off their own training jobs.
+            The full UI-driven pipeline dispatches training to HiPerGator,
+            so running end-to-end through our app requires an HPG
+            allocation. Without HPG access a user can still upload a PLY
+            to the Converter page, view pre-trained splats on the Gallery
+            page, and run COLMAP locally if they install it themselves —
+            but can't launch a GPU training job through the app.
           </li>
         </ul>
       </section>

@@ -230,7 +230,7 @@ For teammates running VS Code Remote SSH against HPG, or working directly in the
 
 1. Start backend (`uvicorn main:app --reload`) and frontend (`npm run dev`) in separate terminals.
 2. Open http://localhost:5173.
-3. Go to the Gallery page and pick one of the pre-existing datasets from the dropdown (e.g. `banana`, `truck`).
+3. Go to the Gallery page and pick one of the pre-existing datasets from the dropdown (e.g., `cone`, `snowboard`, or `gator_statue`).
 4. The splat should load in the viewer within a second or two. You should be able to orbit with the mouse, and the controls panel (top-left of the viewer) should expand when you click its caret.
 
 If all of that works, the local setup is good.
@@ -263,10 +263,10 @@ The variants in the current `experiment_matrix.yaml`:
 
 | Variant | Backend | Notes |
 |---|---|---|
-| `stock_baseline` | FasterGS | Stock Inria rasterizer + `torch.optim.Adam`. Reference point. |
-| `fastergs_adam` | FasterGS | Stock rasterizer + FasterGS fused Adam (the portion of FasterGS that compiles on L4/B200). |
-| `scale_reset` / `entropy` / `progressive` / `combined` | FasterGS | Shorter-Splatting paper techniques. Off unless a `shortgs_*` flag is set. |
-| `opensplat` | OpenSplat | C++ binary trainer on HPG; ignores FasterGS/shortgs flags. |
+| `stock_baseline` | Faster-GS | Stock Inria rasterizer + `torch.optim.Adam`. Reference point. |
+| `fastergs_adam` | Faster-GS | Stock rasterizer + Faster-GS fused Adam (the portion of Faster-GS that compiles on L4/B200). |
+| `scale_reset` / `entropy` / `progressive` / `combined` | Faster-GS | Shorter-Splatting paper techniques. Off unless a `shortgs_*` flag is set. |
+| `opensplat` | OpenSplat | C++ binary trainer on HPG; ignores Faster-GS/shortgs flags. |
 
 ---
 

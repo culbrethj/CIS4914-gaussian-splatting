@@ -98,15 +98,16 @@ all three are combined.
 Copy-paste these from `backend/`. They all hit `hpg-turin`; override with
 `FASTERGS_TRAIN_PARTITION` if your class has access to a different one.
 The dataset name must already exist under `backend/datasets/<name>/` with
-a video under `video/`. If you just uploaded one through the UI, use the
-name you typed in the form (e.g. `test1234`).
+a video under `video/`. The first block below runs against `cone` (one of
+the datasets currently committed). Substitute any dataset name you have
+locally for the subsequent blocks.
 
 **Baseline** (no shortgs flags — reproduces default Faster-GS behavior):
 
 ```bash
 FASTERGS_TRAIN_PARTITION=hpg-turin \
-python scripts/fastergs_pipeline.py test1234 \
-  --video datasets/test1234/video/*.mov \
+python scripts/fastergs_pipeline.py cone \
+  --video datasets/cone/video/*.mov \
   --iters 10000 \
   --seed 0
 ```
@@ -115,8 +116,8 @@ python scripts/fastergs_pipeline.py test1234 \
 
 ```bash
 FASTERGS_TRAIN_PARTITION=hpg-turin \
-python scripts/fastergs_pipeline.py test1234 \
-  --video datasets/test1234/video/*.mov \
+python scripts/fastergs_pipeline.py <your-dataset> \
+  --video datasets/<your-dataset>/video/*.mov \
   --iters 10000 \
   --seed 0 \
   --shortgs-scale-reset-every 1000 \
@@ -127,8 +128,8 @@ python scripts/fastergs_pipeline.py test1234 \
 
 ```bash
 FASTERGS_TRAIN_PARTITION=hpg-turin \
-python scripts/fastergs_pipeline.py test1234 \
-  --video datasets/test1234/video/*.mov \
+python scripts/fastergs_pipeline.py <your-dataset> \
+  --video datasets/<your-dataset>/video/*.mov \
   --iters 10000 \
   --seed 0 \
   --shortgs-entropy-weight 0.01
@@ -138,8 +139,8 @@ python scripts/fastergs_pipeline.py test1234 \
 
 ```bash
 FASTERGS_TRAIN_PARTITION=hpg-turin \
-python scripts/fastergs_pipeline.py test1234 \
-  --video datasets/test1234/video/*.mov \
+python scripts/fastergs_pipeline.py <your-dataset> \
+  --video datasets/<your-dataset>/video/*.mov \
   --iters 10000 \
   --seed 0 \
   --shortgs-progressive-resolution "0:0.25,5000:0.5,10000:1.0"
@@ -149,8 +150,8 @@ python scripts/fastergs_pipeline.py test1234 \
 
 ```bash
 FASTERGS_TRAIN_PARTITION=hpg-turin \
-python scripts/fastergs_pipeline.py test1234 \
-  --video datasets/test1234/video/*.mov \
+python scripts/fastergs_pipeline.py <your-dataset> \
+  --video datasets/<your-dataset>/video/*.mov \
   --iters 10000 \
   --seed 0 \
   --shortgs-scale-reset-every 1000 \
@@ -171,10 +172,11 @@ gaussians / wall time. You'll see the config recorded in
 
 ## Recommended quick-validation dataset
 
-The **test1234** dataset (50 frames, ~60 MB source video, 10k iters in
-~5-8 minutes on hpg-turin L4) is small enough for rapid iteration. If
-you don't have it, upload any phone video through the Live Demos UI
-and give it a short name; that's your dataset.
+A small dataset (roughly 50 frames, ~60 MB source video) runs 10k iters
+in ~5-8 minutes on hpg-turin L4, which is fast enough for rapid
+iteration. If you don't have one handy, upload any short phone video
+through the Live Demos UI and give it a short name; that's your
+dataset.
 
 ## Running the full matrix
 
