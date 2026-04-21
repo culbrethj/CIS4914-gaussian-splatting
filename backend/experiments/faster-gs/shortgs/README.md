@@ -36,7 +36,7 @@ What's wired:
 The paper's exact formulation is "entropy of the per-pixel alpha blending
 weight distribution". That would need the rasterizer to return per-pixel
 alpha lists - the stock and Faster-GS rasterizers here don't, and exposing
-them requires modifying the CUDA kernel (not feasible before the deadline).
+them would require modifying the CUDA kernel directly.
 
 We implement a **faithful proxy**: the Bernoulli entropy of each gaussian's
 scalar opacity, averaged across all gaussians, scaled by
@@ -68,7 +68,7 @@ log). HPG retired the A100 partition; turin is the closest equivalent
 our group has access to.
 
 If the turin queue is backed up you can fall back to `hpg-b200`
-(sm_100) — but the FasterGS custom rasterizer and fused Adam don't
+(sm_100). But the FasterGS custom rasterizer and fused Adam don't
 build on sm_100 yet, so B200 runs need the two sed lines in
 `scripts/hpg_gs_final_train.py` (currently commented out) re-enabled.
 That mode prints `rasterizer_mode=standard optimizer_mode=adam`;
@@ -76,16 +76,16 @@ training still completes, just without the FasterGS speedup.
 
 ## The three techniques (paper summary)
 
-1. **Scale reset** — every K iterations, shrink every gaussian's log-scale
+1. **Scale reset**: every K iterations, shrink every gaussian's log-scale
    parameter by a factor F < 1. Paper claims ~2× training speedup because
    smaller gaussians contribute to fewer pixels, shortening per-pixel
    alpha-blend lists.
-2. **Entropy constraint on alpha blending** — add `λ · H(α)` to the loss,
+2. **Entropy constraint on alpha blending**: add `λ · H(α)` to the loss,
    where H is the entropy of the per-pixel alpha-weight distribution
    across contributing gaussians. Pushes each gaussian to dominate a
    region instead of contributing weakly to many, also shortens per-pixel
    lists.
-3. **Progressive resolution scheduler** — start training at a fraction of
+3. **Progressive resolution scheduler**: start training at a fraction of
    full image resolution (e.g. 25%) and step up at scheduled iteration
    boundaries. Cheaper early iterations, converges to same quality as
    fixed full-res.
@@ -102,7 +102,7 @@ a video under `video/`. The first block below runs against `cone` (one of
 the datasets currently committed). Substitute any dataset name you have
 locally for the subsequent blocks.
 
-**Baseline** (no shortgs flags — reproduces default Faster-GS behavior):
+**Baseline** (no shortgs flags; reproduces default Faster-GS behavior):
 
 ```bash
 FASTERGS_TRAIN_PARTITION=hpg-turin \
@@ -164,11 +164,6 @@ After each run, metrics land under
 `backend/datasets/<name>/metrics/<run_tag>/` and the Reports page (`/reports`)
 picks them up automatically. Pick baseline + one technique in the run list
 and flip to "Overlay runs" to see whether the technique actually helped.
-
-Reminder: until the vendored fork is patched, these flags just set env
-vars; the trainer ignores them. Every run will produce identical PSNR /
-gaussians / wall time. You'll see the config recorded in
-`metrics_summary.json` under `"shortgs"` so the plumbing is verifiable.
 
 ## Recommended quick-validation dataset
 

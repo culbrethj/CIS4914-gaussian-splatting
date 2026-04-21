@@ -15,7 +15,7 @@ which pulls in the Faster-GS techniques.
 
 We picked it because:
 
-- OpenSplat's local binary has been flaky across machines — missing dylibs,
+- OpenSplat's local binary has been flaky across machines: missing dylibs,
   runtime segfaults. Faster-GS on HPG is where we actually get reliable
   training runs.
 - It produces standard `point_cloud.ply` output, which plugs straight into
@@ -37,7 +37,7 @@ The split:
 |---------------------------|-------|
 | Frame extraction + filtering | Local |
 | Upload cleaned images to HPG | Local (`rsync` over SSH) |
-| SfM (COLMAP or VGGT)       | HPG (SLURM — CPU for COLMAP, GPU for VGGT) |
+| SfM (COLMAP or VGGT)       | HPG (SLURM; CPU for COLMAP, GPU for VGGT) |
 | Faster-GS training         | HPG (SLURM GPU job) |
 | PLY → SPLAT                | HPG (right after training) |
 | Fetch result + publish     | Local |
@@ -59,7 +59,7 @@ the `--sfm-method` CLI flag:
   undistort step is needed afterwards.
 
 Pick COLMAP when you want the familiar pipeline. Pick VGGT when you want
-to iterate fast on training settings — a full run (prepare → SfM →
+to iterate fast on training settings. A full run (prepare → SfM →
 training) drops from ~25 min to ~8 min on our 48-image smoke set.
 
 VGGT bundle adjustment is ON by default (`--vggt-use-ba`). Without BA,
@@ -70,11 +70,18 @@ timing comparisons, not for actual training.
 
 ### VGGT: one-time HPG setup
 
+Commands below use `$USER` as your gatorlink. Export `FASTERGS_REMOTE_ROOT`
+once before running them so paths resolve to your own workspace:
+
+```bash
+export FASTERGS_REMOTE_ROOT=/blue/cis4914/$USER/gs_final
+```
+
 Only needed once per remote workspace (`$FASTERGS_REMOTE_ROOT`):
 
 ```bash
 # Clone the VGGT repo into $REMOTE_ROOT/src/
-ssh hpg 'cd /blue/cis4914/joshuabowman/gs_final/src && git clone --depth=1 https://github.com/facebookresearch/vggt.git'
+ssh hpg 'cd /blue/cis4914/$USER/gs_final/src && git clone --depth=1 https://github.com/facebookresearch/vggt.git'
 
 # Install vggt + its extra deps into the fastergs conda env. We pass
 # --no-deps on vggt itself because its pyproject pins torch==2.3.1 which
@@ -83,15 +90,15 @@ ssh hpg 'cd /blue/cis4914/joshuabowman/gs_final/src && git clone --depth=1 https
 # pycolmap.Image(cam_from_world=...) and pycolmap 4.x made that attribute
 # read-only (it became a method), which can't be patched around.
 ssh hpg 'bash -lc "source /apps/conda/25.7.0/etc/profile.d/conda.sh && \
-  conda activate /blue/cis4914/joshuabowman/gs_final/envs/fastergs_cuda128 && \
-  pip install --no-deps /blue/cis4914/joshuabowman/gs_final/src/vggt && \
+  conda activate /blue/cis4914/$USER/gs_final/envs/fastergs_cuda128 && \
+  pip install --no-deps /blue/cis4914/$USER/gs_final/src/vggt && \
   pip install einops safetensors huggingface_hub trimesh \"pycolmap==3.10.0\" hydra-core omegaconf scipy tqdm && \
   pip install git+https://github.com/cvg/LightGlue"'
 
 # Prime the VGGT-1B weight cache. Takes ~1 min; subsequent jobs hit the cache.
 ssh hpg 'bash -lc "source /apps/conda/25.7.0/etc/profile.d/conda.sh && \
-  conda activate /blue/cis4914/joshuabowman/gs_final/envs/fastergs_cuda128 && \
-  export HF_HOME=/blue/cis4914/joshuabowman/gs_final/models/hf && \
+  conda activate /blue/cis4914/$USER/gs_final/envs/fastergs_cuda128 && \
+  export HF_HOME=/blue/cis4914/$USER/gs_final/models/hf && \
   python -c \"from vggt.models.vggt import VGGT; VGGT.from_pretrained(\\\"facebook/VGGT-1B\\\"); print(\\\"ok\\\")\""'
 ```
 
@@ -113,14 +120,15 @@ Before any of this works you need:
      User your-gatorlink
      IdentityFile ~/.ssh/id_ed25519
    ```
-   Test with `ssh hpg hostname` — it should print a login node without
+   Test with `ssh hpg hostname`. It should print a login node without
    prompting for a password.
-3. **A workspace on `/blue/cis4914/` that you own.** Default is
-   `/blue/cis4914/joshuabowman/gs_final`. Every HPG path the pipeline
-   touches is derived from this root, so a single env var override moves
-   the entire workspace. See "Configuration knobs" below.
+3. **A workspace on `/blue/cis4914/` that you own.** The scripts ship with
+   a default root they'll fall back to (see the `FASTERGS_REMOTE_ROOT` row
+   in "Configuration knobs" below), but every reader should point them at
+   their own `/blue/cis4914/<your-gatorlink>/gs_final` via one env var
+   override. All HPG paths the pipeline touches are derived from that root.
 4. **conda on HPG.** The training job loads `conda/25.7.0` as a module. You
-   don't need to set up anything manually — the job script creates an env
+   don't need to set up anything manually. The job script creates an env
    at `$REMOTE_ROOT/envs/fastergs_cuda128` on the first run and reuses it
    after that.
 
@@ -137,7 +145,9 @@ if you're running under a different HPG account or on a different partition.
 | `FASTERGS_PREP_PARTITION` | SfM/undistort SLURM job | `hpg-default` |
 | `FASTERGS_TRAIN_PARTITION` | Training SLURM job | `hpg-turin` |
 | `FASTERGS_COLMAP_CONTAINER` | HPG prepare job | `/apps/colmap/3.11/container.sif` |
-| `FASTERGS_SOURCE_DATASETS` | hpg_gs_final_sync.py | `/blue/cis4914/joshuabowman/gaussian-splatting/experiments/faster-gs/datasets` |
+
+Override `FASTERGS_REMOTE_ROOT` before running anything. The default shown
+above is the original developer workspace and should not be relied on.
 
 To use your own `/blue` space, export `FASTERGS_REMOTE_ROOT` once:
 
@@ -177,7 +187,7 @@ This was the biggest integration headache and it's worth knowing about if
 something breaks:
 
 - **pycolmap** (which our local SfM uses for the OpenSplat path) defaults
-  to `SIMPLE_RADIAL` cameras — one radial distortion parameter per camera.
+  to `SIMPLE_RADIAL` cameras: one radial distortion parameter per camera.
 - The **Faster-GS dataset loader** only accepts `SIMPLE_PINHOLE` or
   `PINHOLE`. No distortion term, just `fx fy cx cy`.
 - If you hand it a `SIMPLE_RADIAL` model, it either crashes inside scene
@@ -189,7 +199,7 @@ with `SIMPLE_RADIAL`, we run `colmap image_undistorter`. That rewrites the
 images (removing lens distortion) and the sparse model into an undistorted
 PINHOLE space. After that step straight lines in the scene really are
 straight, the focal length is still valid, and the distortion term is
-gone — exactly what the trainer expects.
+gone, exactly what the trainer expects.
 
 `scripts/fastergs_preflight.py` runs right after and verifies the output is
 actually PINHOLE-family. If somehow a `SIMPLE_RADIAL` snuck through, it
@@ -225,25 +235,25 @@ The script logs every step it takes and exits non-zero on any failure.
 
 After a successful run:
 
-- `backend/hipergator/gs_final/<run_tag>.splat` — the fetched trained splat.
-- `backend/hipergator/gs_final/<run_tag>.ply` — the raw PLY.
-- `backend/datasets/<dataset>/splat.splat` — the canonical "latest splat
+- `backend/hipergator/gs_final/<run_tag>.splat`: the fetched trained splat.
+- `backend/hipergator/gs_final/<run_tag>.ply`: the raw PLY.
+- `backend/datasets/<dataset>/splat.splat`: the canonical "latest splat
   for this dataset". The viewer loads this.
-- `backend/hipergator/<dataset>_fastergs_latest.splat` — a flat copy for
+- `backend/hipergator/<dataset>_fastergs_latest.splat`: a flat copy for
   the Gallery page.
-- `backend/datasets/<dataset>/metrics/<run_tag>/` — metrics JSONL + summary
+- `backend/datasets/<dataset>/metrics/<run_tag>/`: metrics JSONL + summary
   + PNGs (see below).
 
 ## Metrics
 
 Every training run writes structured metrics while it's running:
 
-- `metrics.jsonl` — one JSON record per saved PLY checkpoint, with
+- `metrics.jsonl`: one JSON record per saved PLY checkpoint, with
   iteration, loss, PSNR, gaussian count, splats/frame, wall_seconds.
-- `metrics_summary.json` — final values + metadata (backend, iterations,
+- `metrics_summary.json`: final values + metadata (backend, iterations,
   partition, dataset).
 - `psnr.png`, `ssim.png`, `lpips.png`, `loss.png`, `num_gaussians.png`,
-  `splats_per_frame.png`, `wall_seconds.png` — rendered by matplotlib on HPG.
+  `splats_per_frame.png`, `wall_seconds.png`: rendered by matplotlib on HPG.
 
 SSIM and LPIPS only compute when the trainer writes eval images to
 `test/ours_N/renders` and `gt` (it does this at `--test_iterations`
@@ -276,7 +286,7 @@ FASTERGS_TRAIN_PARTITION=hpg-b200 uvicorn main:app --reload
 
 Or pass `--train-partition hpg-b200` to `fastergs_pipeline.py`. Note
 that B200 (sm_100) can't compile FasterGS's custom kernels yet, so you'll
-see `rasterizer_mode=standard` in the log — quality is unaffected but
+see `rasterizer_mode=standard` in the log. Quality is unaffected but
 you lose the FasterGS speedup. See the next section if you need to
 re-enable the B200 fallback patches.
 
@@ -286,14 +296,14 @@ The conda env is out of sync. Easiest fix is to blow it away and let the
 next run rebuild it:
 
 ```bash
-ssh hpg 'rm -rf /blue/cis4914/joshuabowman/gs_final/envs/fastergs_cuda128'
+ssh hpg 'rm -rf $FASTERGS_REMOTE_ROOT/envs/fastergs_cuda128'
 ```
 
 The next training run will recreate it (adds ~15 min to that run).
 
 ### "USE_FASTERGS_RASTERIZER = False" in training logs
 
-Used to be the intentional B200 workaround — B200 is sm_100 and the
+Used to be the intentional B200 workaround. B200 is sm_100 and the
 FasterGS custom rasterizer doesn't compile there yet. The sed patches
 that flipped those flags off are now commented out in
 `scripts/hpg_gs_final_train.py` because the default partition is
@@ -310,7 +320,7 @@ to run repeatedly; pip will no-op anything already installed.
 ### VGGT job fails with `ConnectionError` during model download
 
 The compute node couldn't reach HuggingFace. Weights should be cached
-under `$REMOTE_ROOT/models/hf/` after the first successful run — re-run
+under `$REMOTE_ROOT/models/hf/` after the first successful run. Re-run
 the priming step from a login node (which has outbound HTTPS). If the
 cache gets stale, `rm -rf $REMOTE_ROOT/models/hf` and re-prime.
 
@@ -321,7 +331,7 @@ install) and bumped it past the 3.x line. The script bails early before
 the long model download. Fix:
 
 ```bash
-ssh hpg '/blue/cis4914/joshuabowman/gs_final/envs/fastergs_cuda128/bin/pip \
+ssh hpg '/blue/cis4914/$USER/gs_final/envs/fastergs_cuda128/bin/pip \
   install --no-deps "pycolmap==3.10.0"'
 ```
 
@@ -339,7 +349,7 @@ with BA on (the default).
 ### Want to force a fresh SfM even though the fingerprint matches
 
 `rm backend/datasets/<dataset>/remote_sfm_fingerprint.json` locally, or
-flip the SfM method in the UI (COLMAP ↔ VGGT) — switching methods always
+flip the SfM method in the UI (COLMAP ↔ VGGT). Switching methods always
 invalidates the cache and triggers a new SfM run.
 
 ### Local dev server can't reach the backend
