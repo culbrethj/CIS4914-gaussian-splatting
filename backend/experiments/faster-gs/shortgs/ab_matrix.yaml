@@ -18,6 +18,13 @@ base_iterations: 10000
 
 partition: hpg-turin
 
+# Pinned preprocessing settings, matching experiment_matrix.yaml so this
+# A/B matrix stays comparable with the full matrix's baseline runs. The
+# code default for downscale is 1.0; we pin 0.75 here to match the
+# existing results on disk.
+preprocessing:
+  downscale: 0.75
+
 configs:
   - name: baseline
     flags: {}

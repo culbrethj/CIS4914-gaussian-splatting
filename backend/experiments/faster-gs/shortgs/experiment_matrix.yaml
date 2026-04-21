@@ -25,6 +25,14 @@ base_iterations: 10000
 # partition, so hpg-turin is now the go-to for FasterGS runs.
 partition: hpg-turin
 
+# Pinned preprocessing settings. These override fastergs_pipeline.py's
+# CLI defaults so future matrix runs stay comparable with the existing
+# 18-run baseline recorded in ANALYSIS_REPORT.md. The code default for
+# downscale is 1.0 (no resize); the matrix is pinned at 0.75 because
+# every result already on disk was produced at 0.75.
+preprocessing:
+  downscale: 0.75
+
 configs:
   # Two optimizer baselines. Both use the stock Inria rasterizer
   # because the FasterGS custom rasterizer fails on sm_89 and sm_100

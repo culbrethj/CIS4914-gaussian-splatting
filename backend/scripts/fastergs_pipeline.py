@@ -109,7 +109,7 @@ def main():
     parser.add_argument("--duplicate-threshold", type=float, default=1.5)
     parser.add_argument("--blur-threshold", type=float, default=20.0)
     parser.add_argument("--fps", type=float, default=12.0)
-    parser.add_argument("--downscale", type=float, default=0.75)
+    parser.add_argument("--downscale", type=float, default=1.0)
     parser.add_argument("--max-width", type=int, default=1280)
 
     parser.add_argument("--remote", default=os.getenv("FASTERGS_REMOTE", "hpg"), help="SSH target/alias")

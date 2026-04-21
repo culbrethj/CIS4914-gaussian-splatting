@@ -80,7 +80,8 @@ def build_env(config_flags: dict, seed: int) -> dict:
 
 
 def invoke_pipeline(*, dataset: str, video: Path, iterations: int, partition: str,
-                    backend: str, config_flags: dict, seed: int, dry_run: bool) -> int:
+                    backend: str, config_flags: dict, seed: int, dry_run: bool,
+                    preprocessing: dict | None = None) -> int:
     cmd = [
         sys.executable,
         str(BACKEND_DIR / "scripts" / "fastergs_pipeline.py"),
@@ -91,6 +92,20 @@ def invoke_pipeline(*, dataset: str, video: Path, iterations: int, partition: st
         "--seed", str(seed),
         "--backend", backend,
     ]
+    # Matrix-level preprocessing pins. Each key corresponds to a CLI flag on
+    # fastergs_pipeline.py. Keeping these pinned in the YAML (instead of
+    # leaving them to the code default) keeps old matrix data comparable
+    # when someone later changes a default.
+    prep_flag_map = {
+        "fps": "--fps",
+        "downscale": "--downscale",
+        "blur_threshold": "--blur-threshold",
+        "duplicate_threshold": "--duplicate-threshold",
+        "max_width": "--max-width",
+    }
+    for key, flag in prep_flag_map.items():
+        if preprocessing and preprocessing.get(key) is not None:
+            cmd += [flag, str(preprocessing[key])]
     # shortgs + fastergs-adam flags only apply to the fastergs backend.
     # OpenSplat is a separate C++ trainer that doesn't know about them, so
     # drop them here rather than errorring. Lets the same yaml row carry
@@ -154,6 +169,7 @@ def main():
     iterations = matrix.get("base_iterations") or 10000
     partition = matrix.get("partition") or "hpg-turin"
     configs = matrix.get("configs") or []
+    preprocessing = matrix.get("preprocessing") or {}
     if not datasets:
         sys.exit("matrix has no datasets")
     if not configs:
@@ -212,6 +228,7 @@ def main():
                     config_flags=cflags,
                     seed=seed,
                     dry_run=args.dry_run,
+                    preprocessing=preprocessing,
                 )
                 if rc != 0:
                     print(f"[run_matrix] pipeline exit code {rc} for {run_name}")

@@ -14,7 +14,7 @@ const SETTING_INFO = {
   blur: "Drops frames whose Laplacian variance is below this number (i.e. blurry frames). Higher = stricter. Affects the SfM step, so changing this triggers reprocessing.",
   dup: "Drops frames that look nearly identical to the last kept frame. Higher = more aggressive dedup. Affects the SfM step.",
   fps: "How many frames per second to pull from the source video. Lower = fewer total frames = faster SfM, but less scene coverage. 0 uses the source video's native FPS.",
-  downscale: "Resize each extracted frame by this factor before preprocessing. 0.75 = 75% of source resolution. Lower speeds up SfM but loses detail.",
+  downscale: "Resize each extracted frame by this factor before preprocessing. 1.0 = original resolution (default); 0.5 = half the source resolution. Lower speeds up SfM but loses detail.",
   maxWidth: "Hard cap on output frame width in pixels. Any frame wider than this is downscaled further. Useful for very high-res source video.",
   seed: "Random seed for training. Use the same seed to reproduce a previous run. Doesn't affect SfM.",
   scaleReset: "Shrinks every gaussian's size by a factor every K iterations. From the Shorter-Splatting paper — aims to reduce per-pixel gaussian overlap and speed up training.",
@@ -38,7 +38,7 @@ const SIMPLE_PREP_DEFAULTS = {
   duplicateThreshold: 1.5,
   blurThreshold: 20,
   fps: 12,
-  downscale: 0.75,
+  downscale: 1.0,
   maxWidth: 1280,
 };
 
