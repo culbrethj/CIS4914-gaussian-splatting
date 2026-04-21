@@ -308,14 +308,24 @@ export default function Reports() {
         }
       }
       const iters = [...iterSet].sort((a, b) => a - b);
-      const points = iters.map((iter) => {
+      // Drop iterations where no selected run has a real sample for this
+      // metric. Sparse metrics (PSNR, Gaussians, wall_seconds) only land
+      // every ~500 iters in our checkpoint cadence; keeping the empty
+      // rows makes Recharts try to snap activeDot to them on hover and
+      // flicker between candidate positions.
+      const points = [];
+      for (const iter of iters) {
         const point = { iteration: iter };
+        let hasAny = false;
         for (const tag of selectedRunTags) {
           const v = perRun[tag].get(iter);
-          if (v !== undefined) point[tag] = v;
+          if (v !== undefined) {
+            point[tag] = v;
+            hasAny = true;
+          }
         }
-        return point;
-      });
+        if (hasAny) points.push(point);
+      }
       out[key] = points;
     }
     return out;
@@ -1005,7 +1015,13 @@ function StackedCharts({ metrics, runTags, seriesByRun, colorByRunTag, runNumber
               <div className="charts-row">
                 {metrics
                   .filter(({ key }) => records.some((r) => r[key] != null))
-                  .map(({ key, label }) => (
+                  .map(({ key, label }) => {
+                    // Filter down to rows where this metric has a real
+                    // value so Recharts doesn't try to snap activeDot to
+                    // empty checkpoint slots (causes hover flicker on
+                    // sparse metrics like PSNR and num_gaussians).
+                    const metricRecords = records.filter((r) => r[key] != null);
+                    return (
                     <div key={key} className="chart-card">
                       <h4>
                         {label}
@@ -1015,7 +1031,7 @@ function StackedCharts({ metrics, runTags, seriesByRun, colorByRunTag, runNumber
                       </h4>
                       <div className="chart-wrap">
                         <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={records} margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
+                          <LineChart data={metricRecords} margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e5ecf6" />
                             <XAxis
                               dataKey="iteration"
@@ -1050,7 +1066,8 @@ function StackedCharts({ metrics, runTags, seriesByRun, colorByRunTag, runNumber
                         </ResponsiveContainer>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
               </div>
             )}
           </div>
