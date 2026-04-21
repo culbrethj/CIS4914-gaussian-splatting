@@ -622,3 +622,44 @@ button:disabled {
   color: #94a3b8;
   cursor: not-allowed;
 }
+
+/* Persistent "UI preview" banner shown only in the GitHub Pages build.
+   Visually distinct from the in-page status pills - amber band across the
+   top of the interactive region so the grader can't miss it. */
+.live-demos-static-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 10px 14px;
+  border: 1px solid #e3b341;
+  border-left: 4px solid #bf8700;
+  border-radius: 8px;
+  background: #fff8e1;
+  color: #4a3d00;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+.live-demos-static-banner strong {
+  color: #3d2f00;
+}
+
+/* Fieldset is a layout-neutral wrapper; strip its default UA styles so it
+   doesn't insert an extra border/padding around the demo grid. When static
+   mode kicks in we dim it slightly and set a not-allowed cursor at the
+   container level - individual disabled inputs already get their own
+   not-allowed cursor from browser defaults and the rules above. */
+.live-demos-fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0;
+}
+.live-demos-fieldset.is-static-disabled {
+  cursor: not-allowed;
+  opacity: 0.95;
+}
+.live-demos-fieldset.is-static-disabled :disabled {
+  cursor: not-allowed;
+}

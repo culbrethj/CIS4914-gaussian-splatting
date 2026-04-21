@@ -7,43 +7,22 @@ import { fetchJson, parseApiError } from "../utils/apiClient";
 import { isStaticMode } from "../config/showcase";
 import "./LiveDemos.css";
 
-// Static banner shown in place of the full Live Demos UI in the GitHub Pages
-// build. The upload + training flow needs the FastAPI backend + HiPerGator
-// access, neither of which exist in a static deploy.
-function LiveDemosStaticBanner() {
+// Persistent banner rendered at the top of the Live Demos page in the
+// GitHub Pages build. Not dismissible - the grader needs to see it every
+// time they land on the page so they understand why controls are disabled.
+// Sits above the main demo grid rather than replacing it, so the grader can
+// still inspect the UI shape + actually drive the Viewer (which reads
+// committed showcase splats via the static shim).
+function LiveDemosStaticPreviewBanner() {
   return (
-    <main className="live-demos-page" style={{ padding: "2rem 1rem" }}>
-      <div className="page-header">
-        <h2>Live Demos</h2>
-      </div>
-      <div
-        role="status"
-        style={{
-          border: "1px solid var(--line, #d0d7de)",
-          borderRadius: 8,
-          padding: "1rem 1.25rem",
-          background: "var(--soft, #f6f8fa)",
-          lineHeight: 1.55,
-        }}
-      >
-        <p style={{ marginTop: 0 }}>
-          <strong>Live Demos require the local FastAPI backend.</strong>
-        </p>
-        <p>
-          The public website is a read-only showcase. Uploading a video,
-          running a training job, and streaming live logs all depend on the
-          backend and on HiPerGator access, which are not available in this
-          deployment.
-        </p>
-        <p style={{ marginBottom: 0 }}>
-          To try the full pipeline, clone the repo and run it locally - see
-          the project README's &quot;Local setup&quot; section for the one
-          command that starts both the API and the dev server. Meanwhile,
-          Gallery and Reports on this site show the pre-trained showcase
-          results end-to-end.
-        </p>
-      </div>
-    </main>
+    <div className="live-demos-static-banner" role="status">
+      <strong>This is a UI preview.</strong>
+      <span>
+        Live Demos require the local FastAPI backend and HiPerGator access -
+        see README for local setup. Inputs and buttons are disabled in this
+        hosted version.
+      </span>
+    </div>
   );
 }
 
@@ -141,17 +120,19 @@ function logKind(line) {
  *   4. Viewer panel (lines 1424-1496): renders the published splat via
  *      GaussViewer once the run finishes.
  */
-// Outer shell: switches between the static banner and the real interactive
-// UI. Keeps the static-mode check out of the hook-heavy body so React's
-// Rules of Hooks aren't disturbed by a conditional before the useState calls.
+// Outer shell: always renders the real interactive UI so the grader sees
+// the actual form, log panel, and viewer shapes. In the GitHub Pages build
+// we pass staticMode=true so the interactive component disables every
+// control that would fire a backend call and shows a persistent preview
+// banner at the top. Hooks still run unconditionally in the child.
 export default function LiveDemos() {
-  if (isStaticMode()) {
-    return <LiveDemosStaticBanner />;
-  }
-  return <LiveDemosInteractive />;
+  return <LiveDemosInteractive staticMode={isStaticMode()} />;
 }
 
-function LiveDemosInteractive() {
+function LiveDemosInteractive({ staticMode = false }) {
+  // Single title attribute reused on every disabled control for a
+  // consistent native tooltip explaining why interaction does nothing.
+  const disabledTitle = staticMode ? "Disabled in hosted preview" : undefined;
   // `datasets` = every dataset on disk, regardless of whether a splat
   // exists yet. Used by the "Existing dataset" picker so we can rerun
   // SfM / training against a preprocessed dataset that was never fully
@@ -189,6 +170,11 @@ function LiveDemosInteractive() {
   // past that initial hint - the server's /api/jobs/{id} response is
   // what ultimately sets the real state.
   const persistedJobHint = (() => {
+    // Static build can't reconnect to any job (no backend to ask), so we
+    // ignore whatever localStorage left behind from a previous local-dev
+    // session on the same origin. Prevents a permanent "Reconnecting..."
+    // flash that has no path to resolve.
+    if (staticMode) return null;
     try {
       const raw = typeof localStorage !== "undefined"
         ? localStorage.getItem(ACTIVE_JOB_STORAGE_KEY)
@@ -411,6 +397,10 @@ function LiveDemosInteractive() {
   // dataset dropdown) so we can show a "SfM cached" note in Advanced
   // Settings.
   useEffect(() => {
+    // In static-mode there's no prep-status endpoint to synthesize and the
+    // "SfM cached" hint is meaningless without a pipeline behind it. Skip
+    // the fetch so the shim doesn't have to 503 on every dataset change.
+    if (staticMode) return;
     const target = inputMode === "existing" ? existingDataset : (uploadedDataset || datasetName);
     if (!target) {
       setPrepStatus(null);
@@ -425,7 +415,7 @@ function LiveDemosInteractive() {
       if (!cancelled) setPrepStatus(data);
     })();
     return () => { cancelled = true; };
-  }, [uploadedDataset, datasetName, existingDataset, inputMode, runStatus]);
+  }, [uploadedDataset, datasetName, existingDataset, inputMode, runStatus, staticMode]);
 
   useEffect(() => {
     if (logRef.current) {
@@ -434,6 +424,12 @@ function LiveDemosInteractive() {
   }, [logs]);
 
   useEffect(() => {
+    // Static build never has a live job to poll. Belt-and-suspenders
+    // alongside the handler guards: even if jobId somehow got set from
+    // stale localStorage (it shouldn't; restoreActiveJob is also gated
+    // off), we refuse to spin up the 1.5s-polling loop against a shim
+    // that would just 503 every tick.
+    if (staticMode) return;
     if (!jobId || runStatus !== "running") {
       return;
     }
@@ -503,7 +499,7 @@ function LiveDemosInteractive() {
         window.clearTimeout(timerId);
       }
     };
-  }, [jobId, runStatus, closeCurrentWs, refreshDatasets, clearPersistedActiveJob]);
+  }, [jobId, runStatus, closeCurrentWs, refreshDatasets, clearPersistedActiveJob, staticMode]);
 
   // Job recovery after a page refresh. Training can take 10+ minutes, so if
   // the user reloads the page mid-run we want to reattach to the WebSocket
@@ -520,6 +516,12 @@ function LiveDemosInteractive() {
   // response, setState is a no-op when values match) so letting both
   // invocations run is fine.
   useEffect(() => {
+    // No job restore in the static build - every restore path fetches
+    // /api/jobs/{id} or /api/jobs-active, which the shim would 503 on,
+    // and any stale localStorage entry from a prior local-dev session
+    // would otherwise trigger a fake "Reconnecting..." state the user
+    // can never dismiss.
+    if (staticMode) return;
     let cancelled = false;
 
     const restoreActiveJob = async () => {
@@ -661,7 +663,7 @@ function LiveDemosInteractive() {
     return () => {
       cancelled = true;
     };
-  }, [appendLog, clearPersistedActiveJob, refreshDatasets, persistActiveJob]);
+  }, [appendLog, clearPersistedActiveJob, refreshDatasets, persistActiveJob, staticMode]);
 
   useEffect(() => {
     return () => {
@@ -681,6 +683,10 @@ function LiveDemosInteractive() {
   // ws:// against the current host and let Vite's proxy forward it to the
   // FastAPI server in dev.
   function openWS(id, datasetForResult) {
+    // Static build: there is no /api/ws/{id} to connect to. The native
+    // WebSocket constructor throws a noisy console error when the server
+    // rejects the upgrade, so just bail before opening the socket.
+    if (staticMode) return;
     closeCurrentWs();
 
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -732,6 +738,7 @@ function LiveDemosInteractive() {
   }
 
   async function handleCancelJob() {
+    if (staticMode) return;
     if (!jobId) return;
     try {
       const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
@@ -751,6 +758,10 @@ function LiveDemosInteractive() {
 
   async function handleUpload(event) {
     event.preventDefault();
+    // Static build: defensive guard. The form's wrapping <fieldset disabled>
+    // already prevents the submit button from firing, but an Enter-key
+    // submission from a focused text input can still trigger this handler.
+    if (staticMode) return;
 
     const cleanDataset = datasetName.trim();
     if (!videoFile) {
@@ -795,6 +806,7 @@ function LiveDemosInteractive() {
   }
 
   async function startPipeline({ advanced }) {
+    if (staticMode) return;
     const targetDataset = inputMode === "existing"
       ? existingDataset
       : (uploadedDataset || datasetName.trim());
@@ -1008,6 +1020,19 @@ function LiveDemosInteractive() {
         <p>Upload video, run reconstruction, and inspect generated splats in one flow.</p>
       </header>
 
+      {staticMode && <LiveDemosStaticPreviewBanner />}
+
+      {/* Fieldset wrap is the HTML-native way to mass-disable every nested
+          form control (inputs, selects, buttons) in one shot. Only kicks in
+          when staticMode is true; in real deploys this fieldset stays
+          enabled and the existing per-control disabled={isBusy} logic keeps
+          running unchanged. Viewer panel lives outside the fieldset so the
+          grader can still interact with the Gallery-style splat renderer. */}
+      <fieldset
+        className={`live-demos-fieldset${staticMode ? " is-static-disabled" : ""}`}
+        disabled={staticMode}
+        title={disabledTitle}
+      >
       <section className="demo-grid">
         <article className="panel">
           <div className="panel-head">
@@ -1497,6 +1522,7 @@ function LiveDemosInteractive() {
           ) : null}
         </article>
       </section>
+      </fieldset>
 
       {/* Viewer is the main focus of the page. The dataset picker sits
           inline in the panel header so it doesn't eat vertical space and
