@@ -625,7 +625,7 @@ async def run_pipeline(payload: dict = Body(...)):
                 "--prepare-partition",
                 os.getenv("FASTERGS_PREP_PARTITION", "hpg-default"),
                 "--train-partition",
-                os.getenv("FASTERGS_TRAIN_PARTITION", "hpg-turin"),
+                os.getenv("FASTERGS_TRAIN_PARTITION", "hpg-b200"),
                 "--sfm-method",
                 params.get("sfm_method", DEFAULT_SFM_METHOD),
             ]
