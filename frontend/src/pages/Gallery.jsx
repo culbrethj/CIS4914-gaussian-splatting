@@ -3,16 +3,15 @@ import GaussViewer from "../components/GaussViewer";
 import SideBySideViewer from "../components/SideBySideViewer";
 import "./Gallery.css";
 
-// Two-level selector: pick a dataset, then a run. Single-run datasets
-// auto-select the one run. Compare mode shows two runs from the same
-// dataset side-by-side.
-// Runs come from GET /api/datasets/{name}/runs which groups per-run splats
-// with their metrics so the dropdown can show "Run 1", "Run 2" instead of
-// raw filenames.
+// Two-level selector: pick a dataset, then a training run. Single-run
+// datasets auto-select the one run. Compare mode shows two runs from the
+// same dataset side-by-side.
+// Runs come from GET /api/datasets/{name}/runs. We drop the "Showcase"
+// entries the backend emits for root-level splats that aren't tied to a
+// training run, since this page is only about comparing real runs.
 
 function displayRunLabel(run) {
   if (!run) return "";
-  if (run.is_showcase) return "Showcase";
   return run.display_label || `Run ${run.run_number || "?"}`;
 }
 
@@ -20,10 +19,10 @@ export default function Gallery() {
   const [datasets, setDatasets] = useState([]);
   const [datasetsLoading, setDatasetsLoading] = useState(false);
 
-  // Scene A: dataset name + run_tag (null run_tag = showcase).
+  // Scene A: dataset name + run_tag.
   const [sceneADataset, setSceneADataset] = useState("");
   const [sceneARunTag, setSceneARunTag] = useState("");
-  // Scene B only has a run picker — its dataset follows Scene A's.
+  // Scene B only has a run picker - its dataset follows Scene A's.
   const [sceneBRunTag, setSceneBRunTag] = useState("");
 
   const [compareMode, setCompareMode] = useState(false);
@@ -38,9 +37,10 @@ export default function Gallery() {
     fetch("/api/datasets")
       .then((r) => r.json())
       .then((list) => {
-        // Only datasets that have something viewable: either a root
-        // splat (showcase) or at least one training run.
-        const usable = (list || []).filter((d) => d.has_splat || (d.run_count || 0) > 0);
+        // Only datasets that have at least one training run. Root-only
+        // showcase splats don't belong here anymore; users expecting to see
+        // them should go to Live Demos.
+        const usable = (list || []).filter((d) => (d.run_count || 0) > 0);
         setDatasets(usable);
       })
       .catch(() => setDatasets([]))
@@ -65,8 +65,9 @@ export default function Gallery() {
 
   const sceneARuns = useMemo(() => {
     const all = runsByDataset[sceneADataset] || [];
-    // Only expose runs that actually have a splat on disk.
-    return all.filter((r) => r.splat_path);
+    // Only real training runs: must have a splat and must not be the
+    // backend's synthetic "Showcase" placeholder.
+    return all.filter((r) => r.splat_path && !r.is_showcase);
   }, [runsByDataset, sceneADataset]);
 
   // Single-run datasets auto-select their one run so the user doesn't
@@ -77,25 +78,24 @@ export default function Gallery() {
       return;
     }
     if (sceneARuns.length === 1) {
-      const only = sceneARuns[0];
-      setSceneARunTag(only.run_tag || "__showcase__");
+      setSceneARunTag(sceneARuns[0].run_tag);
     } else if (sceneARuns.length > 1) {
       // Multi-run dataset: clear any stale selection that doesn't belong
       // to the current dataset.
-      const still = sceneARuns.some((r) => (r.run_tag || "__showcase__") === sceneARunTag);
+      const still = sceneARuns.some((r) => r.run_tag === sceneARunTag);
       if (!still) setSceneARunTag("");
     }
   }, [sceneADataset, sceneARuns, sceneARunTag]);
 
   const sceneARun = useMemo(
-    () => sceneARuns.find((r) => (r.run_tag || "__showcase__") === sceneARunTag) || null,
+    () => sceneARuns.find((r) => r.run_tag === sceneARunTag) || null,
     [sceneARuns, sceneARunTag],
   );
 
   // Scene B: only meaningful within Scene A's dataset, excluding Scene A.
   const sceneBOptions = useMemo(() => {
     if (!sceneARun) return [];
-    return sceneARuns.filter((r) => (r.run_tag || "__showcase__") !== sceneARunTag);
+    return sceneARuns.filter((r) => r.run_tag !== sceneARunTag);
   }, [sceneARun, sceneARuns, sceneARunTag]);
 
   const canCompare = sceneBOptions.length > 0;
@@ -104,13 +104,13 @@ export default function Gallery() {
   useEffect(() => {
     if (!compareMode) return;
     if (!sceneBRunTag) return;
-    if (!sceneBOptions.some((r) => (r.run_tag || "__showcase__") === sceneBRunTag)) {
+    if (!sceneBOptions.some((r) => r.run_tag === sceneBRunTag)) {
       setSceneBRunTag("");
     }
   }, [sceneARunTag, sceneADataset, compareMode, sceneBOptions, sceneBRunTag]);
 
   const sceneBRun = useMemo(
-    () => sceneBOptions.find((r) => (r.run_tag || "__showcase__") === sceneBRunTag) || null,
+    () => sceneBOptions.find((r) => r.run_tag === sceneBRunTag) || null,
     [sceneBOptions, sceneBRunTag],
   );
 
@@ -119,7 +119,7 @@ export default function Gallery() {
     setCompareMode(next);
     if (next) {
       if (!sceneBRunTag && sceneBOptions.length > 0) {
-        setSceneBRunTag(sceneBOptions[0].run_tag || "__showcase__");
+        setSceneBRunTag(sceneBOptions[0].run_tag);
       }
     } else {
       setMatchCamera(false);
@@ -150,7 +150,7 @@ export default function Gallery() {
         <div className="gallery-empty">
           {datasetsLoading
             ? "Loading datasets..."
-            : "No datasets yet. If you expect datasets here, check the backend health banner at the top of the page. The backend may not be running."}
+            : "No datasets with training runs yet. Kick off a job from Live Demos to populate this page."}
         </div>
       ) : (
         <section className="gallery-controls">
@@ -184,8 +184,8 @@ export default function Gallery() {
                 <option value="">-- select a run --</option>
                 {sceneARuns.map((r) => (
                   <option
-                    key={r.run_tag || "__showcase__"}
-                    value={r.run_tag || "__showcase__"}
+                    key={r.run_tag}
+                    value={r.run_tag}
                     title={r.run_tag || r.splat_filename || ""}
                   >
                     {displayRunLabel(r)}
@@ -235,8 +235,8 @@ export default function Gallery() {
                 <option value="">-- select a second run --</option>
                 {sceneBOptions.map((r) => (
                   <option
-                    key={r.run_tag || "__showcase__"}
-                    value={r.run_tag || "__showcase__"}
+                    key={r.run_tag}
+                    value={r.run_tag}
                     title={r.run_tag || r.splat_filename || ""}
                   >
                     {displayRunLabel(r)}

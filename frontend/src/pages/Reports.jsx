@@ -527,11 +527,6 @@ export default function Reports() {
             />
           )}
 
-          {/* Paper validation placeholder - shown only while the rasterizer
-              hook isn't wired up yet. Once we can read per-pixel alpha lists
-              from the custom CUDA backend, this turns into a real histogram
-              the same way scale + opacity do. */}
-          <GaussianListPlaceholder />
         </>
       )}
 
@@ -959,27 +954,6 @@ function HistogramCard({ tag, runNumber, color, hist, xLabel }) {
             </Bar>
           </BarChart>
         </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
-
-// Placeholder card for the per-pixel gaussian-list-length metric. Lives
-// inside the rasterizer kernel, which we don't currently expose to Python,
-// so there's no data to plot yet. Styled as a neutral "coming soon" card
-// rather than an error-looking empty state.
-function GaussianListPlaceholder() {
-  return (
-    <div className="charts-grid section-spaced">
-      <h3 className="section-title">Gaussian list length per pixel</h3>
-      <div className="placeholder-card">
-        <div className="placeholder-badge">Coming soon</div>
-        <p className="placeholder-text">
-          Requires a custom CUDA rasterizer backend that reports per-pixel
-          alpha-blend lists. Once wired up, this card will show the average
-          number of gaussians that contribute to each pixel — the paper's
-          headline metric.
-        </p>
       </div>
     </div>
   );
