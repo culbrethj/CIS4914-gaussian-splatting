@@ -1,224 +1,306 @@
 import React from "react";
-import { Link } from "react-router-dom";
+
+// External links on this page open in a new tab so the user doesn't lose
+// their place in the app. The rel attrs are the standard safety pair that
+// keeps the new tab from getting a back-reference to our window.
+const ext = { target: "_blank", rel: "noopener noreferrer" };
 
 export default function Documentation() {
   return (
     <main style={s.page}>
       <header style={s.header}>
-        <h1 style={s.h1}>How the viewer renders splats</h1>
+        <h1 style={s.h1}>Documentation</h1>
         <p style={s.lede}>
-          A walkthrough of what actually happens when you open a scene on the
-          Live Demos page. Written for anyone who hasn't worked with Gaussian
-          splatting before.
+          What this project is, how the end-to-end pipeline works, and what
+          we built it on. Written for someone who hasn't seen the code yet.
         </p>
       </header>
 
       <section style={s.section}>
-        <h2 style={s.h2}>What the viewer is looking at</h2>
+        <h2 style={s.h2}>1. What this app does</h2>
         <p style={s.p}>
-          The file being rendered is a list of 3D gaussians. Each gaussian is
-          basically a tiny fuzzy ellipsoid floating in space. It has a
-          position (x, y, z), a shape (covariance — how stretched and oriented
-          the ellipsoid is), a color, and an opacity. A full scene is millions
-          of these stacked up. When you look at enough of them blended
-          together they form a photorealistic 3D image.
+          You upload a phone video of something you want to capture
+          (a banana on a table, a building, a stuffed animal), wait for the
+          job to finish, and get a 3D scene you can fly around in directly
+          in your browser. It is end-to-end: the same app handles the video
+          upload, the reconstruction, the training, and the viewer. You
+          don't have to install anything or run a separate tool to see the
+          result.
+        </p>
+      </section>
+
+      <section style={s.section}>
+        <h2 style={s.h2}>2. How the pipeline works</h2>
+        <p style={s.p}>
+          The pipeline has five stages. Each one runs after the previous
+          one finishes, and live logs stream back to the Live Demos page
+          so you can watch it happen.
+        </p>
+
+        <h3 style={s.h3}>a. Video ingestion</h3>
+        <p style={s.p}>
+          The browser posts the video file to the FastAPI backend at
+          <code style={s.code}> /api/upload</code>. The backend stores it
+          under <code style={s.code}>backend/datasets/&lt;name&gt;/video/</code>,
+          validates the content type, and waits. When you click Run, a
+          second call to <code style={s.code}>/api/run</code> spawns the
+          pipeline orchestrator as a subprocess and streams its stdout
+          over a WebSocket back to the browser.
+        </p>
+
+        <h3 style={s.h3}>b. Preprocessing</h3>
+        <p style={s.p}>
+          OpenCV pulls frames out of the video at a target frame rate
+          (12 FPS by default). Each frame is then run through two filters.
+          The first drops blurry frames using the variance of the Laplacian
+          (LAPV) focus measure from
+          {" "}
+          <a style={s.link} {...ext} href="https://www.sciencedirect.com/science/article/abs/pii/S0031320312004736">
+            Pertuz et al. 2013
+          </a>
+          : low variance means few sharp edges, which usually means motion
+          blur or focus hunt. The second drops near-identical consecutive
+          frames using mean absolute difference between grayscale
+          thumbnails. Survivors get resized if wider than 1280 pixels, a
+          cap that matches the resolution band the reference 3D Gaussian
+          Splatting code targets.
+        </p>
+
+        <h3 style={s.h3}>c. Structure-from-Motion</h3>
+        <p style={s.p}>
+          Structure-from-Motion (SfM) recovers where the camera was when
+          each frame was taken and produces a sparse 3D point cloud of the
+          scene. Without it, the Gaussian Splatting trainer would have no
+          idea where to place anything. We support two SfM methods. COLMAP
+          ({" "}
+          <a style={s.link} {...ext} href="https://openaccess.thecvf.com/content_cvpr_2016/papers/Schonberger_Structure-From-Motion_Revisited_CVPR_2016_paper.pdf">
+            Schönberger and Frahm, 2016
+          </a>
+          ) is the default and the industry standard: slow, CPU-bound, but
+          very accurate on natural scenes. VGGT is a feed-forward neural
+          network that estimates camera poses in under a minute on a GPU;
+          it also handles reflective and transparent surfaces that COLMAP's
+          classical feature matching gives up on. The kitchen blender in
+          our test set registered only 2 of 45 frames under COLMAP but all
+          45 under VGGT, so the choice matters in practice.
+        </p>
+
+        <h3 style={s.h3}>d. Gaussian Splatting training</h3>
+        <p style={s.p}>
+          The trainer starts by placing one 3D gaussian at each sparse SfM
+          point. Each gaussian carries a position, a 3D covariance matrix
+          (scale and rotation), an opacity, and a color stored as
+          spherical-harmonic coefficients. Training is a differentiable
+          rasterizer and gradient descent: the trainer renders the current
+          gaussians from each known camera, compares the render against the
+          real frame, backpropagates the pixel loss through all gaussian
+          parameters, and periodically densifies regions that need more
+          detail and prunes gaussians that don't contribute. The method is
+          due to
+          {" "}
+          <a style={s.link} {...ext} href="https://doi.org/10.1145/3592433">
+            Kerbl et al. 2023
+          </a>
+          . We support two training backends. Faster-GS is the default and
+          runs on UF's HiPerGator cluster; OpenSplat is available as a
+          local alternative. Experiment results comparing them live in the
+          Testing Information section of our written report.
+        </p>
+
+        <h3 style={s.h3}>e. Rendering</h3>
+        <p style={s.p}>
+          The trainer writes a <code style={s.code}>.ply</code> file with
+          one vertex per gaussian. A small converter repacks it into the
+          compact <code style={s.code}>.splat</code> binary format (32
+          bytes per gaussian) and the final file comes back down to the
+          backend. The browser fetches it, uploads the data to the GPU,
+          and lets you navigate the scene. No re-training, no server round
+          trip for camera movement.
+        </p>
+      </section>
+
+      <section style={s.section}>
+        <h2 style={s.h2}>3. What runs on your computer vs the server</h2>
+        <p style={s.p}>
+          <strong>Server side (HiPerGator).</strong> Frame extraction,
+          preprocessing, SfM, and Gaussian Splatting training all run
+          remotely. The backend dispatches a SLURM job to HiPerGator when
+          you hit Run. Training runs on NVIDIA B200 GPUs on the
+          <code style={s.code}> hpg-b200</code> partition by default.
+          When the job finishes, the final
+          <code style={s.code}> .splat</code> file, metrics, and charts get
+          rsynced back to our backend automatically.
         </p>
         <p style={s.p}>
-          There are two related file formats in play here:
+          <strong>Client side (your browser).</strong> Viewing a trained
+          splat happens entirely locally. The viewer uses the
+          {" "}
+          <code style={s.code}>&lt;Splat&gt;</code> component from
+          {" "}
+          <a style={s.link} {...ext} href="https://github.com/pmndrs/drei">
+            @react-three/drei
+          </a>
+          , which renders through
+          {" "}
+          <a style={s.link} {...ext} href="https://threejs.org/">Three.js</a>
+          {" "}and WebGL2. Sorting the gaussians front-to-back for correct
+          alpha compositing happens on the CPU in JavaScript (drei pushes
+          it into a Web Worker so the main thread stays responsive). The
+          actual projection, rasterization, and compositing happen on the
+          GPU via WebGL2 shaders. The PLY-to-SPLAT converter on the
+          Converter page is also client-side, pure JavaScript, no server
+          round trip.
         </p>
+      </section>
+
+      <section style={s.section}>
+        <h2 style={s.h2}>4. Hardware requirements</h2>
+        <p style={s.p}><strong>To view splats (client side):</strong></p>
         <ul style={s.ul}>
           <li>
-            <code style={s.code}>.ply</code> — the format the trainer writes
-            out. Text or binary, one vertex per gaussian with all the
-            parameters as properties.
+            A modern browser with WebGL2 support. Recent Chrome, Firefox,
+            Safari, and Edge all qualify.
           </li>
           <li>
-            <code style={s.code}>.splat</code> — a compact binary repack of
-            the same data. Smaller and faster to load in the browser. This is
-            what the viewer actually consumes.
+            A discrete or integrated GPU from the last ~5 years. Intel UHD
+            620 and newer handle small splats; dedicated NVIDIA, AMD, and
+            Apple Silicon GPUs handle large splats smoothly.
+          </li>
+          <li>
+            Around 2 GB of free RAM per loaded splat. Large scenes can
+            have 4+ million gaussians and correspondingly bigger footprints.
           </li>
         </ul>
-        <p style={s.p}>
-          Our backend pipeline (either OpenSplat or Faster-GS) writes a
-          <code style={s.code}>.ply</code>, then a small converter script
-          (<code style={s.code}>backend/scripts/converter.py</code>)
-          repacks it into <code style={s.code}>.splat</code> before the file
-          ever reaches the browser.
-        </p>
-      </section>
-
-      <section style={s.section}>
-        <h2 style={s.h2}>Libraries doing the rendering</h2>
-        <p style={s.p}>
-          The viewer component (<code style={s.code}>GaussViewer.jsx</code>)
-          uses three nested libraries:
-        </p>
+        <p style={s.p}><strong>To train splats (server side):</strong></p>
         <ul style={s.ul}>
           <li>
-            <strong>three.js</strong> (v0.183) — the underlying WebGL2 engine.
-            Handles the GPU scene graph, shaders, and draw calls.
-          </li>
-          <li>
-            <strong>@react-three/fiber</strong> (v9) — the React wrapper
-            around three.js. Lets us describe the 3D scene with JSX.
-          </li>
-          <li>
-            <strong>@react-three/drei</strong> (v10) — a grab-bag of R3F
-            helper components. We use its <code style={s.code}>&lt;Splat&gt;</code>
-            component to render the file. That component is the one actually
-            parsing the <code style={s.code}>.splat</code> bytes and setting
-            up the WebGL instanced-quad pipeline underneath.
-          </li>
-        </ul>
-        <p style={s.p}>
-          Separately, on the <Link to="/converter" style={s.link}>Converter</Link>
-          page, we use a library called <strong>gsplat</strong> (v1.2) to turn
-          a user-uploaded <code style={s.code}>.ply</code> into
-          <code style={s.code}> .splat</code> client-side. It's pure
-          JavaScript — no GPU involvement — and runs entirely on the main
-          thread.
-        </p>
-      </section>
-
-      <section style={s.section}>
-        <h2 style={s.h2}>What runs on the CPU vs GPU</h2>
-        <p style={s.p}>
-          Rendering a splat scene is unusual compared to traditional 3D
-          because two things happen each frame: the GPU rasterizes the
-          gaussians as usual, but the CPU first has to sort them so the
-          transparency stacks up correctly. Here's the breakdown.
-        </p>
-
-        <h3 style={s.h3}>On the CPU</h3>
-        <p style={s.p}>
-          <strong>Once, when the scene loads:</strong> the browser fetches
-          the <code style={s.code}>.splat</code> file from the backend,
-          parses the binary header and body into typed arrays (positions,
-          covariances, colors, opacities), and uploads those arrays to the
-          GPU as vertex buffers. This is O(N) in the number of gaussians,
-          runs on the main thread, and typically takes under a second for
-          a million gaussians.
-        </p>
-        <p style={s.p}>
-          <strong>Every frame, while you're looking around:</strong> the CPU
-          has to sort gaussians back-to-front relative to the camera so alpha
-          compositing produces a stable image. Without this sort you get
-          flickering edges as gaussians draw in the wrong order. drei's
-          <code style={s.code}> &lt;Splat&gt;</code> pushes this sort into a
-          Web Worker so it doesn't block the main thread — you can still
-          scroll and interact while the sort is updating.
-        </p>
-        <p style={s.p}>
-          The sort is usually the biggest CPU cost in the viewer. For
-          million-gaussian scenes on a mid-range laptop, expect a few
-          milliseconds per frame.
-        </p>
-
-        <h3 style={s.h3}>On the GPU</h3>
-        <p style={s.p}>
-          <strong>Vertex shader:</strong> projects each 3D gaussian into
-          2D screen space. This means converting the 3D covariance matrix
-          into a 2D covariance matrix that describes the ellipse the
-          gaussian covers on screen. One instanced quad is issued per
-          gaussian, positioned to cover that ellipse.
-        </p>
-        <p style={s.p}>
-          <strong>Fragment shader:</strong> for each pixel inside the quad,
-          evaluates the 2D gaussian density function to get a falloff
-          weight, multiplies by the gaussian's color + opacity, and blends
-          it into the framebuffer on top of everything behind it.
-        </p>
-        <p style={s.p}>
-          The GPU is the workhorse. Modern integrated GPUs handle a few
-          hundred thousand gaussians fine; for multi-million scenes you
-          really want a dedicated GPU.
-        </p>
-
-        <h3 style={s.h3}>PLY → SPLAT conversion (converter page only)</h3>
-        <p style={s.p}>
-          The converter page is 100% CPU work. gsplat parses the PLY header,
-          reads per-vertex properties, repacks into the .splat binary format,
-          and triggers a download. No GPU, no worker, just typed-array
-          shuffling on the main thread. Runtime scales linearly with the
-          gaussian count.
-        </p>
-      </section>
-
-      <section style={s.section}>
-        <h2 style={s.h2}>Hardware and browser requirements</h2>
-        <ul style={s.ul}>
-          <li>
-            <strong>WebGL2-capable browser.</strong> Chrome 56+, Firefox 51+,
-            Safari 15+, Edge 79+. If WebGL2 is disabled or missing, the
-            viewer silently renders nothing.
-          </li>
-          <li>
-            <strong>A GPU.</strong> Anything dedicated from the last five
-            years works well. Recent integrated GPUs (Apple M-series, Intel
-            Iris Xe, AMD Radeon iGPUs) handle scenes up to around one
-            million gaussians. Older integrated chips will still run but
-            the framerate drops noticeably.
-          </li>
-          <li>
-            <strong>VRAM.</strong> Roughly 4 GB comfortably handles a
-            multi-million gaussian scene. Smaller demo scenes (under 500k
-            gaussians) fit in about 1 GB.
-          </li>
-          <li>
-            <strong>CPU.</strong> Any modern laptop CPU is fine. The
-            per-frame sort is parallelizable in principle but drei's default
-            implementation is single-threaded inside the Worker.
-          </li>
-          <li>
-            <strong>Mobile.</strong> iOS Safari 15+ and Android Chrome both
-            work. Expect thermal throttling on longer sessions with big
-            scenes.
-          </li>
-        </ul>
-      </section>
-
-      <section style={s.section}>
-        <h2 style={s.h2}>Known limits</h2>
-        <ul style={s.ul}>
-          <li>
-            <strong>No WebGPU path yet.</strong> drei's
-            <code style={s.code}> &lt;Splat&gt;</code> is WebGL2-only as of
-            v10.7. A WebGPU version would likely shift the sort onto the GPU
-            and reduce CPU load.
-          </li>
-          <li>
-            <strong>SH band 0 only.</strong> The drei renderer reads only
-            the flat-color spherical-harmonic coefficient (band 0). Higher
-            bands (which add view-dependent color) are present in the
-            <code style={s.code}> .splat</code> file but not used. Our
-            backend only produces band 0 anyway, so this isn't a regression.
-          </li>
-          <li>
-            <strong>Large files.</strong> A 20 MB+ splat has to be downloaded
-            and parsed before anything renders. We don't stream gaussians
-            progressively — you see a blank canvas until the whole file is
-            ready.
+            Training runs on HiPerGator, not locally. If you wanted to run
+            the pipeline on your own machine, you'd need an NVIDIA GPU
+            with at least 8 GB of VRAM, CUDA 11.8 or newer, and either the
+            Faster-GS or OpenSplat backend compiled for your architecture.
           </li>
         </ul>
       </section>
 
       <section style={s.section}>
-        <h2 style={s.h2}>Where to look in the code</h2>
+        <h2 style={s.h2}>5. Papers and tools we built on</h2>
+        <p style={s.p}><strong>Papers</strong> (same numbering as the written report):</p>
         <ul style={s.ul}>
           <li>
-            <code style={s.code}>frontend/src/components/GaussViewer.jsx</code>
-            — the actual viewer component. Wraps drei's Splat inside a
-            react-three-fiber Canvas. Also has a freecam mode (WASD + mouse
-            look) that teammates added.
+            Mildenhall et al., 2020 &mdash; NeRF: Representing Scenes as
+            Neural Radiance Fields for View Synthesis.
+            {" "}
+            <a style={s.link} {...ext} href="https://arxiv.org/abs/2003.08934">arxiv.org/abs/2003.08934</a>
           </li>
           <li>
-            <code style={s.code}>frontend/src/components/Converter.jsx</code>
-            — the PLY→SPLAT conversion page.
+            Kerbl et al., 2023 &mdash; 3D Gaussian Splatting for Real-Time
+            Radiance Field Rendering.
+            {" "}
+            <a style={s.link} {...ext} href="https://doi.org/10.1145/3592433">doi.org/10.1145/3592433</a>
           </li>
           <li>
-            <code style={s.code}>backend/scripts/converter.py</code> — the
-            server-side version of the same conversion, used by the
-            pipeline before publishing the result.
+            Schönberger and Frahm, 2016 &mdash; Structure-from-Motion
+            Revisited.
+            {" "}
+            <a style={s.link} {...ext} href="https://openaccess.thecvf.com/content_cvpr_2016/papers/Schonberger_Structure-From-Motion_Revisited_CVPR_2016_paper.pdf">CVPR 2016 paper</a>
+          </li>
+          <li>
+            Hartley and Zisserman, 2004 &mdash; Multiple View Geometry in
+            Computer Vision (book).
+          </li>
+          <li>
+            Pertuz et al., 2013 &mdash; Analysis of focus measure operators
+            for shape-from-focus. Pattern Recognition 46(5).
+            {" "}
+            <a style={s.link} {...ext} href="https://www.sciencedirect.com/science/article/abs/pii/S0031320312004736">sciencedirect.com</a>
+          </li>
+          <li>
+            Hahlbohm et al., 2026 &mdash; Faster-GS: Analyzing and Improving
+            Gaussian Splatting Optimization.
+            {" "}
+            <a style={s.link} {...ext} href="https://arxiv.org/abs/2602.09999">arxiv.org/abs/2602.09999</a>
+          </li>
+          <li>
+            Hanson et al., 2025 &mdash; Speedy-Splat: Fast 3D Gaussian
+            Splatting with Sparse Pixels and Sparse Primitives.
+            {" "}
+            <a style={s.link} {...ext} href="https://speedysplat.github.io/">speedysplat.github.io</a>
+          </li>
+        </ul>
+        <p style={s.p}><strong>Tools and libraries</strong>:</p>
+        <ul style={s.ul}>
+          <li>
+            COLMAP &mdash;
+            {" "}
+            <a style={s.link} {...ext} href="https://github.com/colmap/colmap">github.com/colmap/colmap</a>
+          </li>
+          <li>
+            OpenSplat (pierotofy) &mdash;
+            {" "}
+            <a style={s.link} {...ext} href="https://github.com/pierotofy/OpenSplat">github.com/pierotofy/OpenSplat</a>
+          </li>
+          <li>
+            Faster-GS (nerficg-project Inria fork) &mdash;
+            {" "}
+            <a style={s.link} {...ext} href="https://github.com/nerficg-project/faster-gaussian-splatting">github.com/nerficg-project/faster-gaussian-splatting</a>
+          </li>
+          <li>
+            Three.js &mdash;
+            {" "}
+            <a style={s.link} {...ext} href="https://threejs.org/">threejs.org</a>
+          </li>
+          <li>
+            React Three Fiber &mdash;
+            {" "}
+            <a style={s.link} {...ext} href="https://r3f.docs.pmnd.rs/">r3f.docs.pmnd.rs</a>
+          </li>
+          <li>
+            drei (<code style={s.code}>&lt;Splat&gt;</code> component) &mdash;
+            {" "}
+            <a style={s.link} {...ext} href="https://github.com/pmndrs/drei">github.com/pmndrs/drei</a>
+          </li>
+          <li>
+            FastAPI (backend) &mdash;
+            {" "}
+            <a style={s.link} {...ext} href="https://fastapi.tiangolo.com/">fastapi.tiangolo.com</a>
+          </li>
+          <li>
+            OpenCV (frame extraction and filtering) &mdash;
+            {" "}
+            <a style={s.link} {...ext} href="https://opencv.org/">opencv.org</a>
+          </li>
+        </ul>
+      </section>
+
+      <section style={s.section}>
+        <h2 style={s.h2}>6. Known limitations</h2>
+        <ul style={s.ul}>
+          <li>
+            COLMAP's feature matching breaks down on reflective or
+            transparent surfaces. Our kitchen-blender test scene (45
+            frames) only registered 2 frames under COLMAP but all 45
+            under VGGT; switching SfM methods is the right move on scenes
+            like that.
+          </li>
+          <li>
+            OpenSplat doesn't emit per-iteration evaluation renders, so
+            SSIM and LPIPS come back null in our metrics pipeline; PSNR
+            is only captured when OpenSplat prints it to stdout. See the
+            Testing Information section of the written report for how we
+            handle the cross-backend comparison.
+          </li>
+          <li>
+            The Faster-GS custom rasterizer currently fails to launch on
+            L4 (sm_89) and B200 (sm_100) GPUs due to a CUDA shared-memory
+            configuration that assumes Ampere-era hardware. Runs on those
+            architectures fall back to the stock Inria rasterizer; the
+            fused-Adam optimizer from Faster-GS still works.
+          </li>
+          <li>
+            Training requires a HiPerGator allocation. Without HPG access
+            a user can still upload a PLY to the Converter page and view
+            any pre-trained splats on the Gallery page, but cannot kick
+            off their own training jobs.
           </li>
         </ul>
       </section>
