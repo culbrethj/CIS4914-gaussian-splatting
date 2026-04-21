@@ -27,9 +27,9 @@ Generates + uploads an sbatch script that:
 After SLURM reports COMPLETED the script scp's ``.splat`` + ``.ply`` +
 metrics back to ``backend/hipergator/gs_final/`` + ``backend/datasets/<ds>/metrics/<run_tag>/``.
 
-Most HPG-specific paths default to ``/blue/cis4914/joshuabowman/...`` but
-every one can be overridden via CLI flag or environment variable; see
-``--help`` for the full list.
+Every HPG-specific path is derived from ``FASTERGS_REMOTE_ROOT`` (set in
+the repo-root .env); no dev default is baked in. See ``--help`` for the
+full list of overrides.
 """
 
 from __future__ import annotations
@@ -60,10 +60,19 @@ except ImportError:
 # B200 (hpg-b200, sm_100) so the env's CUDA extensions run on either
 # partition without a rebuild. Override if your target partition uses a
 # different compute capability.
-# HPG workspace root. Every default path below is derived from this so you
-# can point the whole pipeline at a different user's /blue space by setting
-# one env var (FASTERGS_REMOTE_ROOT). CLI flags still override per-path.
-DEFAULT_REMOTE_ROOT = os.environ.get("FASTERGS_REMOTE_ROOT", "/blue/cis4914/joshuabowman/gs_final")
+# HPG workspace root. Required; no dev fallback is baked in. Every default
+# path below is derived from this root, so one env var points the whole
+# pipeline at a gatorlink-specific /blue space. CLI flags still override
+# per-path. fastergs_pipeline.py loads the repo-root .env before invoking
+# this script via subprocess; running this script standalone requires the
+# caller to set FASTERGS_REMOTE_ROOT in their shell.
+DEFAULT_REMOTE_ROOT = os.environ.get("FASTERGS_REMOTE_ROOT")
+if not DEFAULT_REMOTE_ROOT:
+    sys.exit(
+        "FASTERGS_REMOTE_ROOT is not set. Copy .env.example to .env "
+        "at the repo root and fill in your HPG workspace path "
+        "(/blue/cis4914/<your-gatorlink>/gs_final)."
+    )
 DEFAULT_REPO_DIR = f"{DEFAULT_REMOTE_ROOT}/src/fastergs_inria"
 DEFAULT_REPO_URL = "https://github.com/fhahlbohm/gaussian-splatting.git"
 DEFAULT_ENV_PREFIX = f"{DEFAULT_REMOTE_ROOT}/envs/fastergs_cuda128"
@@ -1038,7 +1047,7 @@ def main():
                         help="Flip USE_FASTERGS_ADAM=True in the vendored fork before training.")
     # Training backend. fastergs (default) keeps every path on this file
     # unchanged: conda env, Inria fork clone, sed toggles, etc. opensplat
-    # invokes a prebuilt C++ binary under /blue/cis4914/joshuabowman/gs_final/src/OpenSplat/
+    # invokes a prebuilt C++ binary under $FASTERGS_REMOTE_ROOT/src/OpenSplat/
     # and skips the fastergs env entirely (only uses torch env for libtorch
     # runtime linkage).
     parser.add_argument("--backend", choices=["fastergs", "opensplat"], default="fastergs",

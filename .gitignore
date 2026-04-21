@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 *.pyo
 venv/
+# .env at repo root holds user-specific HPG paths (FASTERGS_REMOTE_ROOT
+# etc.). Never committed. .env.example IS committed as the template.
 .env
 .pytest_cache/
 

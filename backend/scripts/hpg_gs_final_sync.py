@@ -29,13 +29,24 @@ except ImportError:
 # when you already uploaded images via some other path and just want to seed
 # gs_final from them. For the main web flow the upload happens inside
 # fastergs_pipeline.py via rsync over SSH.
-# HPG workspace defaults. FASTERGS_REMOTE_ROOT overrides the gs_final root;
-# FASTERGS_SOURCE_DATASETS overrides the read-side path we rsync from.
-DEFAULT_REMOTE_ROOT = os.environ.get("FASTERGS_REMOTE_ROOT", "/blue/cis4914/joshuabowman/gs_final")
-DEFAULT_SOURCE_DATASETS_ROOT = os.environ.get(
-    "FASTERGS_SOURCE_DATASETS",
-    "/blue/cis4914/joshuabowman/gaussian-splatting/experiments/faster-gs/datasets",
-)
+# HPG workspace roots. Both required; no dev fallback is baked in.
+# FASTERGS_REMOTE_ROOT is the gs_final write-side root; FASTERGS_SOURCE_DATASETS
+# is the read-side path we rsync from. Copy .env.example to .env and set both
+# before running this helper.
+DEFAULT_REMOTE_ROOT = os.environ.get("FASTERGS_REMOTE_ROOT")
+if not DEFAULT_REMOTE_ROOT:
+    sys.exit(
+        "FASTERGS_REMOTE_ROOT is not set. Copy .env.example to .env "
+        "at the repo root and fill in your HPG workspace path "
+        "(/blue/cis4914/<your-gatorlink>/gs_final)."
+    )
+DEFAULT_SOURCE_DATASETS_ROOT = os.environ.get("FASTERGS_SOURCE_DATASETS")
+if not DEFAULT_SOURCE_DATASETS_ROOT:
+    sys.exit(
+        "FASTERGS_SOURCE_DATASETS is not set. This helper rsyncs datasets "
+        "from an upstream /blue path into FASTERGS_REMOTE_ROOT; set both in "
+        ".env at the repo root (see .env.example)."
+    )
 
 
 def run_cmd(cmd: list[str], *, dry_run: bool):

@@ -32,10 +32,17 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from hpg_utils import common_ssh_options, format_cmd, log
 
-# HPG workspace defaults. FASTERGS_REMOTE_ROOT env var overrides the root;
-# all derived paths follow from it so teammates can point at their own
-# /blue space with a single export.
-DEFAULT_REMOTE_ROOT = os.environ.get("FASTERGS_REMOTE_ROOT", "/blue/cis4914/joshuabowman/gs_final")
+# HPG workspace root. Required; no dev fallback is baked in. fastergs_pipeline.py
+# (the usual entry point) loads the repo-root .env before invoking this script
+# via subprocess, so the env var propagates through. Running this script
+# standalone requires the caller to set FASTERGS_REMOTE_ROOT in their shell.
+DEFAULT_REMOTE_ROOT = os.environ.get("FASTERGS_REMOTE_ROOT")
+if not DEFAULT_REMOTE_ROOT:
+    sys.exit(
+        "FASTERGS_REMOTE_ROOT is not set. Copy .env.example to .env "
+        "at the repo root and fill in your HPG workspace path "
+        "(/blue/cis4914/<your-gatorlink>/gs_final)."
+    )
 DEFAULT_COLMAP_CONTAINER = os.environ.get(
     "FASTERGS_COLMAP_CONTAINER", "/apps/colmap/3.11/container.sif"
 )

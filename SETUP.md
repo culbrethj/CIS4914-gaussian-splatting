@@ -44,6 +44,8 @@ Host hpg
 
 Run `ssh hpg` once interactively (Duo push + key unlock) so the persistent SSH mux is live. The pipeline's subsequent ssh/scp/rsync calls piggyback on it without re-authing every step.
 
+Before running the backend or any HPG pipeline commands, copy `.env.example` to `.env` at the repo root and fill in your gatorlink-specific paths. The pipeline will fail with a clear error message if required env vars are unset.
+
 ---
 
 ## Running tests

@@ -83,7 +83,7 @@ configs:
   # --- OpenSplat backend (C++ / libtorch, separate rasterizer) ---
   # A second backend bolted onto the matrix. When `backend: opensplat` is
   # set, run_matrix swaps the pipeline's training stage for the prebuilt
-  # OpenSplat binary under /blue/cis4914/joshuabowman/gs_final/src/OpenSplat/.
+  # OpenSplat binary under $FASTERGS_REMOTE_ROOT/src/OpenSplat/.
   # The shortgs + fastergs-adam flags don't apply here (different codebase);
   # they are ignored cleanly if present. All other matrix axes (datasets,
   # seeds, base_iterations, partition) still apply so results are directly

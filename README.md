@@ -117,6 +117,11 @@ cd frontend && npm run dev        # terminal 2
 
 Open http://localhost:5173. Windows and HPG-direct setup in SETUP.md.
 
+Before running the backend or any HPG pipeline commands, copy
+`.env.example` to `.env` at the repo root and fill in your
+gatorlink-specific paths. The pipeline will fail with a clear error
+message if required env vars are unset.
+
 ## Training backends
 
 The Live Demos page lets you pick between two training backends:

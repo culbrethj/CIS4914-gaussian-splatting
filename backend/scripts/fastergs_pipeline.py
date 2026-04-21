@@ -61,6 +61,13 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Repo-root .env populates FASTERGS_* before argparse reads its defaults.
+# Users copy .env.example to .env and fill in their workspace paths.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(_REPO_ROOT / ".env")
+
 
 def run_cmd(cmd: list[str], extra_env: dict[str, str] | None = None):
     printable = " ".join(shlex.quote(part) for part in cmd)
@@ -115,8 +122,8 @@ def main():
     parser.add_argument("--remote", default=os.getenv("FASTERGS_REMOTE", "hpg"), help="SSH target/alias")
     parser.add_argument(
         "--remote-root",
-        default=os.getenv("FASTERGS_REMOTE_ROOT", "/blue/cis4914/joshuabowman/gs_final"),
-        help="Remote gs_final root",
+        default=os.getenv("FASTERGS_REMOTE_ROOT"),
+        help="Remote gs_final root (required; set via FASTERGS_REMOTE_ROOT in .env or CLI)",
     )
     parser.add_argument("--port", type=int, default=22)
     parser.add_argument("--identity-file", default=None)
@@ -177,13 +184,23 @@ def main():
                         help="Enable FasterGS's fused Adam optimizer (rasterizer stays disabled).")
     # Training backend selector. `fastergs` (default) runs the Inria fork
     # via the existing conda env + patch pipeline. `opensplat` invokes the
-    # prebuilt C++ binary under /blue/cis4914/joshuabowman/gs_final/src/OpenSplat/;
+    # prebuilt C++ binary under $FASTERGS_REMOTE_ROOT/src/OpenSplat/;
     # shortgs + fastergs-adam flags are ignored in that branch because they
     # don't apply to OpenSplat's codebase.
     parser.add_argument("--backend", choices=["fastergs", "opensplat"], default="fastergs",
                         help="Which trainer to invoke on HPG (default fastergs).")
 
     args = parser.parse_args()
+
+    # Required: no dev fallback is baked in. The .env loader above populates
+    # FASTERGS_REMOTE_ROOT from the repo-root .env if present; otherwise the
+    # caller must set it in the environment or pass --remote-root.
+    if not args.remote_root:
+        sys.exit(
+            "FASTERGS_REMOTE_ROOT is not set. Copy .env.example to .env "
+            "at the repo root and fill in your HPG workspace path "
+            "(/blue/cis4914/<your-gatorlink>/gs_final), or pass --remote-root."
+        )
 
     backend_dir = Path(__file__).resolve().parent.parent
     scripts_dir = backend_dir / "scripts"

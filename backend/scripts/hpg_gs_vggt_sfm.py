@@ -45,9 +45,18 @@ except ImportError:
     from hpg_utils import common_ssh_options, format_cmd, log
 
 
-# HPG workspace defaults. FASTERGS_REMOTE_ROOT env var moves everything
-# at once; individual paths can still be overridden via CLI flag.
-DEFAULT_REMOTE_ROOT = os.environ.get("FASTERGS_REMOTE_ROOT", "/blue/cis4914/joshuabowman/gs_final")
+# HPG workspace root. Required; no dev fallback is baked in. Derived paths
+# below follow from this root, so one env var points everything at a
+# gatorlink-specific /blue space. fastergs_pipeline.py loads the repo-root
+# .env before invoking this script via subprocess; running this script
+# standalone requires the caller to set FASTERGS_REMOTE_ROOT in their shell.
+DEFAULT_REMOTE_ROOT = os.environ.get("FASTERGS_REMOTE_ROOT")
+if not DEFAULT_REMOTE_ROOT:
+    sys.exit(
+        "FASTERGS_REMOTE_ROOT is not set. Copy .env.example to .env "
+        "at the repo root and fill in your HPG workspace path "
+        "(/blue/cis4914/<your-gatorlink>/gs_final)."
+    )
 DEFAULT_VGGT_REPO = f"{DEFAULT_REMOTE_ROOT}/src/vggt"
 DEFAULT_ENV_PREFIX = f"{DEFAULT_REMOTE_ROOT}/envs/fastergs_cuda128"
 DEFAULT_MODELS_DIR = f"{DEFAULT_REMOTE_ROOT}/models"

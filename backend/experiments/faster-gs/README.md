@@ -140,14 +140,15 @@ if you're running under a different HPG account or on a different partition.
 | Env var | Used by | Default |
 |---|---|---|
 | `FASTERGS_REMOTE` | fastergs_pipeline.py | `hpg` (your SSH alias for HiPerGator) |
-| `FASTERGS_REMOTE_ROOT` | all HPG scripts | `/blue/cis4914/joshuabowman/gs_final` |
+| `FASTERGS_REMOTE_ROOT` | all HPG scripts | (required, no default) |
 | `FASTERGS_SLURM_ACCOUNT` | fastergs_pipeline.py | `cis4914` |
 | `FASTERGS_PREP_PARTITION` | SfM/undistort SLURM job | `hpg-default` |
 | `FASTERGS_TRAIN_PARTITION` | Training SLURM job | `hpg-turin` |
 | `FASTERGS_COLMAP_CONTAINER` | HPG prepare job | `/apps/colmap/3.11/container.sif` |
 
-Override `FASTERGS_REMOTE_ROOT` before running anything. The default shown
-above is the original developer workspace and should not be relied on.
+All `FASTERGS_*` variables should be set via `.env` at the repo root
+(see the main README Setup section). The table documents what each
+variable controls, not hardcoded values.
 
 To use your own `/blue` space, export `FASTERGS_REMOTE_ROOT` once:
 

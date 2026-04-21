@@ -35,7 +35,14 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile, WebSoc
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from dotenv import load_dotenv
+
 HERE = Path(__file__).resolve().parent
+# Load HPG config from the repo-root .env before any request handler reads
+# FASTERGS_* vars. The file is gitignored; each contributor keeps their own.
+# If .env is absent, load_dotenv is a no-op and the /api/run handler's
+# fail-fast check surfaces a clear error to the UI.
+load_dotenv(HERE.parent / ".env")
 DATASET_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 ALLOWED_VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 ALLOWED_PIPELINE_STEPS = {"prepare", "sfm", "opensplat", "all"}
@@ -600,6 +607,19 @@ async def run_pipeline(payload: dict = Body(...)):
             fastergs_pipeline_path = HERE / "scripts/fastergs_pipeline.py"
             if not fastergs_pipeline_path.exists():
                 raise HTTPException(status_code=500, detail="fastergs_pipeline.py not found on server")
+            # FASTERGS_REMOTE_ROOT is required; no dev fallback is baked in.
+            # Surface a 400 to the UI so the user sees the .env instruction
+            # instead of a silent subprocess failure deeper in the pipeline.
+            remote_root = os.getenv("FASTERGS_REMOTE_ROOT")
+            if not remote_root:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "FASTERGS_REMOTE_ROOT is not set. Copy .env.example to .env "
+                        "at the repo root and fill in your HPG workspace path "
+                        "(/blue/cis4914/<your-gatorlink>/gs_final)."
+                    ),
+                )
             cmd = [
                 sys.executable,
                 str(fastergs_pipeline_path),
@@ -619,7 +639,7 @@ async def run_pipeline(payload: dict = Body(...)):
                 "--remote",
                 os.getenv("FASTERGS_REMOTE", "hpg"),
                 "--remote-root",
-                os.getenv("FASTERGS_REMOTE_ROOT", "/blue/cis4914/joshuabowman/gs_final"),
+                remote_root,
                 "--slurm-account",
                 os.getenv("FASTERGS_SLURM_ACCOUNT", "cis4914"),
                 "--prepare-partition",
