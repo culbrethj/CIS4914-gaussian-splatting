@@ -9,6 +9,8 @@ but historically hard to use: the reference implementations need CUDA
 hardware, Python environments, and command-line workflows. Our project
 makes it approachable.
 
+You can see a hosted version of the site at https://culbrethj.github.io/CIS4914-gaussian-splatting/. The Gallery, Reports, and Viewer pages all work there with our trained showcase scenes. The Live Demos page is shown for preview but the upload + training workflow needs the backend running locally. Instructions below.
+
 ## What the app does
 
 1. Upload a video (or pick one of the bundled samples).
@@ -20,7 +22,7 @@ makes it approachable.
 
 ## 10-minute showcase (no training required)
 
-To see what a splat looks like without running the full pipeline:
+To see what a splat looks like without running anything locally, just open the [hosted version](https://culbrethj.github.io/CIS4914-gaussian-splatting/) and click into Gallery. Otherwise, to run it yourself:
 
 1. `./scripts/setup-local.sh` (installs deps; requires Python 3.10–3.13)
 2. Terminal 1: `cd frontend && npm run dev`
@@ -44,7 +46,7 @@ backend and a React frontend.
 Frontend pages (under [frontend/src/pages/](frontend/src/pages/)):
 
 - `/` — Landing + feature cards
-- `/demos` — Upload video, run pipeline, watch live logs ([LiveDemos.jsx](frontend/src/pages/LiveDemos.jsx))
+- `/demos` — Upload video, run pipeline, watch live logs ([LiveDemos.jsx](frontend/src/pages/LiveDemos.jsx)). On the hosted site this page is read-only since there's no backend; locally it works fully.
 - `/gallery` — Browse trained splats, compare runs side-by-side ([Gallery.jsx](frontend/src/pages/Gallery.jsx))
 - `/reports` — Training metrics and charts ([Reports.jsx](frontend/src/pages/Reports.jsx))
 - `/converter` — Client-side PLY → SPLAT conversion ([Converter.jsx](frontend/src/components/Converter.jsx))
@@ -111,7 +113,8 @@ Third-party code and papers this project builds on:
 - ~~Apr 03: Week 12 reports~~
 - ~~Apr 10: Week 13 reports~~
 - ~~Apr 14: Senior Showcase~~
-- **Apr 21: Final Presentation video**
+- ~~Apr 21: Final Presentation video~~
+- ~~Apr 21: GitHub repo submission~~
 
 ---
 
