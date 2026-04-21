@@ -14,6 +14,7 @@ import {
   YAxis,
 } from "recharts";
 import RunDetailsCard from "../components/RunDetailsCard";
+import InfoTip from "../components/InfoTip";
 import { formatRunDisplay, parseRunTag, computeRunNumberMap } from "../utils/runDisplay";
 import { formatMetric, formatNumber } from "../utils/reportsFormat";
 import "./Reports.css";
@@ -119,7 +120,7 @@ const formatMetricValue = (metricKey, value) => formatMetric(value, metricKey);
 // replicate the layout as a white card with a bold header (iteration
 // or wall time) and one row per run with its color swatch + name +
 // formatted value.
-function ChartTooltip({ active, payload, label, metricKey, labelKey = "iteration", labelFormatter }) {
+const ChartTooltip = React.memo(function ChartTooltip({ active, payload, label, metricKey, labelKey = "iteration", labelFormatter }) {
   if (!active || !payload || payload.length === 0) return null;
   const headerLabel = (() => {
     if (labelFormatter) return labelFormatter(label);
@@ -141,13 +142,13 @@ function ChartTooltip({ active, payload, label, metricKey, labelKey = "iteration
       </div>
     </div>
   );
-}
+});
 
 // Histogram bars use a single-series tooltip with the bin range in the
 // header and the count below. Split out from ChartTooltip so the bin
 // range (from payload[0].payload.range) can drive the header without
 // juggling labelFormatter/labelKey conventions.
-function HistogramTooltip({ active, payload }) {
+const HistogramTooltip = React.memo(function HistogramTooltip({ active, payload }) {
   if (!active || !payload || payload.length === 0) return null;
   const p = payload[0];
   const range = p?.payload?.range || "";
@@ -163,7 +164,7 @@ function HistogramTooltip({ active, payload }) {
       </div>
     </div>
   );
-}
+});
 
 export default function Reports() {
   const [datasets, setDatasets] = useState([]);
@@ -716,7 +717,12 @@ function OverlayCharts({ metrics, runTags, dataByMetric, colorByRunTag, runNumbe
           return (
             <div key={key} className="chart-card">
               <div className="chart-head">
-                <h4>{label}</h4>
+                <h4>
+                  {label}
+                  {METRIC_EXPLAINERS[key] && (
+                    <InfoTip text={METRIC_EXPLAINERS[key]} />
+                  )}
+                </h4>
                 {isLoss && (
                   <button
                     type="button"
@@ -731,9 +737,6 @@ function OverlayCharts({ metrics, runTags, dataByMetric, colorByRunTag, runNumbe
                 {runTags.length} run(s) overlaid
                 {isLoss && " · spikes at ~3k/6k/9k are opacity resets (expected)"}
               </div>
-              {METRIC_EXPLAINERS[key] && (
-                <div className="chart-explainer">{METRIC_EXPLAINERS[key]}</div>
-              )}
               <div className="chart-wrap">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={dataByMetric[key]} margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
@@ -772,6 +775,7 @@ function OverlayCharts({ metrics, runTags, dataByMetric, colorByRunTag, runNumbe
                         dot={false}
                         strokeWidth={1.75}
                         connectNulls
+                        isAnimationActive={false}
                       />
                     ))}
                   </LineChart>
@@ -794,14 +798,12 @@ function PsnrVsWallTimeChart({ runTags, pointsByRun, colorByRunTag, runNumberByT
       <h3 className="section-title">PSNR vs wall time</h3>
       <div className="charts-row">
         <div className="chart-card">
-          <h4>PSNR (dB) vs wall time (s)</h4>
+          <h4>
+            PSNR (dB) vs wall time (s)
+            <InfoTip text="PSNR over elapsed wall-clock time instead of iteration. A technique is faster-at-equal-quality if its curve reaches a given PSNR to the left of the baseline." />
+          </h4>
           <div className="chart-sub">
             Speedup view. Curves hitting the same PSNR faster land farther left.
-          </div>
-          <div className="chart-explainer">
-            PSNR over elapsed wall-clock time instead of iteration. A technique
-            is faster-at-equal-quality if its curve reaches a given PSNR to the
-            left of the baseline.
           </div>
           <div className="chart-wrap tall">
             <ResponsiveContainer width="100%" height="100%">
@@ -841,6 +843,7 @@ function PsnrVsWallTimeChart({ runTags, pointsByRun, colorByRunTag, runNumberByT
                     stroke={colorByRunTag[tag] || BASELINE_COLOR}
                     dot={false}
                     strokeWidth={1.75}
+                    isAnimationActive={false}
                   />
                 ))}
               </LineChart>
@@ -1004,10 +1007,12 @@ function StackedCharts({ metrics, runTags, seriesByRun, colorByRunTag, runNumber
                   .filter(({ key }) => records.some((r) => r[key] != null))
                   .map(({ key, label }) => (
                     <div key={key} className="chart-card">
-                      <h4>{label}</h4>
-                      {METRIC_EXPLAINERS[key] && (
-                        <div className="chart-explainer">{METRIC_EXPLAINERS[key]}</div>
-                      )}
+                      <h4>
+                        {label}
+                        {METRIC_EXPLAINERS[key] && (
+                          <InfoTip text={METRIC_EXPLAINERS[key]} />
+                        )}
+                      </h4>
                       <div className="chart-wrap">
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart data={records} margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
@@ -1039,6 +1044,7 @@ function StackedCharts({ metrics, runTags, seriesByRun, colorByRunTag, runNumber
                               dot={false}
                               strokeWidth={1.75}
                               connectNulls
+                              isAnimationActive={false}
                             />
                           </LineChart>
                         </ResponsiveContainer>
