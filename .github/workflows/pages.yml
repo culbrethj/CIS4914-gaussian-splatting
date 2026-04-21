@@ -1,0 +1,70 @@
+# Builds the frontend in VITE_STATIC_MODE and publishes it to GitHub Pages.
+# No FastAPI backend is deployed; the showcase datasets committed under
+# backend/datasets/ are mirrored into the bundle by a Vite plugin at build
+# time (see frontend/vite.config.js).
+#
+# Triggers on main and on the active integration branch so the demo can go
+# live before any merge. workflow_dispatch lets us re-run on demand from
+# the Actions tab.
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - jb/fastergs-opensplat-integration
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deploy in flight at a time; queue newer commits and cancel
+# a stale in-progress run if a fresher one lands.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build static site
+        working-directory: frontend
+        env:
+          VITE_STATIC_MODE: "true"
+        run: npm run build
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

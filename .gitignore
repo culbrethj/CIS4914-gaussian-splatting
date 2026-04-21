@@ -9,6 +9,10 @@ venv/
 # --- Node / Vite ---
 node_modules
 frontend/dist/
+# Populated at build time by the copy-showcase-assets Vite plugin when
+# VITE_STATIC_MODE=true. Source of truth for these files remains under
+# backend/datasets/; this mirror is never hand-edited or committed.
+frontend/public/datasets/
 
 # --- macOS / editor junk ---
 **/.DS_Store

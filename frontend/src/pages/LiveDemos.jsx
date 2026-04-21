@@ -4,7 +4,48 @@ import InfoTip from "../components/InfoTip";
 import StageSummary from "../components/StageSummary";
 import { parsePipelineLog, formatEta } from "../utils/pipelineLog";
 import { fetchJson, parseApiError } from "../utils/apiClient";
+import { isStaticMode } from "../config/showcase";
 import "./LiveDemos.css";
+
+// Static banner shown in place of the full Live Demos UI in the GitHub Pages
+// build. The upload + training flow needs the FastAPI backend + HiPerGator
+// access, neither of which exist in a static deploy.
+function LiveDemosStaticBanner() {
+  return (
+    <main className="live-demos-page" style={{ padding: "2rem 1rem" }}>
+      <div className="page-header">
+        <h2>Live Demos</h2>
+      </div>
+      <div
+        role="status"
+        style={{
+          border: "1px solid var(--line, #d0d7de)",
+          borderRadius: 8,
+          padding: "1rem 1.25rem",
+          background: "var(--soft, #f6f8fa)",
+          lineHeight: 1.55,
+        }}
+      >
+        <p style={{ marginTop: 0 }}>
+          <strong>Live Demos require the local FastAPI backend.</strong>
+        </p>
+        <p>
+          The public website is a read-only showcase. Uploading a video,
+          running a training job, and streaming live logs all depend on the
+          backend and on HiPerGator access, which are not available in this
+          deployment.
+        </p>
+        <p style={{ marginBottom: 0 }}>
+          To try the full pipeline, clone the repo and run it locally - see
+          the project README's &quot;Local setup&quot; section for the one
+          command that starts both the API and the dev server. Meanwhile,
+          Gallery and Reports on this site show the pre-trained showcase
+          results end-to-end.
+        </p>
+      </div>
+    </main>
+  );
+}
 
 // Plain-English explanations for every Advanced Settings knob. Kept in
 // one dictionary so the tooltips + Settings docs never drift.
@@ -100,7 +141,17 @@ function logKind(line) {
  *   4. Viewer panel (lines 1424-1496): renders the published splat via
  *      GaussViewer once the run finishes.
  */
+// Outer shell: switches between the static banner and the real interactive
+// UI. Keeps the static-mode check out of the hook-heavy body so React's
+// Rules of Hooks aren't disturbed by a conditional before the useState calls.
 export default function LiveDemos() {
+  if (isStaticMode()) {
+    return <LiveDemosStaticBanner />;
+  }
+  return <LiveDemosInteractive />;
+}
+
+function LiveDemosInteractive() {
   // `datasets` = every dataset on disk, regardless of whether a splat
   // exists yet. Used by the "Existing dataset" picker so we can rerun
   // SfM / training against a preprocessed dataset that was never fully
