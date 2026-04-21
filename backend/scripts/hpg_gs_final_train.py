@@ -1189,7 +1189,7 @@ def main():
         raise RuntimeError(
             "Remote dataset check failed. Prepare the dataset first with:\n"
             "python scripts/hpg_gs_final_prepare.py can --remote hpg --slurm-account cis4914 "
-            "--slurm-partition hpg-default --slurm-cpus 1 --slurm-mem 8G --slurm-time 01:00:00"
+            "--slurm-partition hpg-default --slurm-cpus 1 --slurm-mem 8G --slurm-time 04:00:00"
         ) from exc
 
     if args.backend == "opensplat":

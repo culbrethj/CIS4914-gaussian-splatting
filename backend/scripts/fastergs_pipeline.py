@@ -126,7 +126,11 @@ def main():
     parser.add_argument("--prepare-partition", default=os.getenv("FASTERGS_PREP_PARTITION", "hpg-default"))
     parser.add_argument("--prepare-cpus", type=int, default=int(os.getenv("FASTERGS_PREP_CPUS", "1")))
     parser.add_argument("--prepare-mem", default=os.getenv("FASTERGS_PREP_MEM", "8G"))
-    parser.add_argument("--prepare-time", default=os.getenv("FASTERGS_PREP_TIME", "01:00:00"))
+    # 4h default gives COLMAP feature matching real headroom on large
+    # (>300 frame) datasets. Gator at 530 frames timed out at the 1h
+    # mark ~65% through matching. Override via FASTERGS_PREP_TIME env
+    # var for small datasets where a shorter wall time is fine.
+    parser.add_argument("--prepare-time", default=os.getenv("FASTERGS_PREP_TIME", "04:00:00"))
 
     parser.add_argument("--train-partition", default=os.getenv("FASTERGS_TRAIN_PARTITION", "hpg-turin"))
     parser.add_argument("--train-gpus", type=int, default=int(os.getenv("FASTERGS_TRAIN_GPUS", "1")))
