@@ -997,12 +997,23 @@ async def list_dataset_runs(name: str):
             # the root only if someone manually placed it there.
             gs_final_splat = hpg_dir / "gs_final" / splat_filename
             root_splat = hpg_dir / splat_filename
+            dataset_root_splat = d / "splat.splat"
             if gs_final_splat.is_file():
                 splat_path = f"/api/hpg/gs_final/{splat_filename}/splat"
                 hpg_splat_tags.add(splat_filename)
             elif root_splat.is_file():
                 splat_path = f"/api/hpg/{splat_filename}/splat"
                 hpg_splat_tags.add(splat_filename)
+            elif dataset_root_splat.is_file():
+                # Third fallback: the dataset-root splat (the "published"
+                # version that fastergs_pipeline.py writes at the end of a
+                # successful run). This is what fresh clones ship with for
+                # the showcase datasets - gs_final/ is gitignored so only
+                # the committed backend/datasets/<name>/splat.splat lands
+                # in a new checkout. Attaching it here keeps the run (and
+                # its metrics) visible in Gallery + Reports without the
+                # grader having to re-train.
+                splat_path = f"/api/datasets/{name}/splat"
             created_at_epoch = None
             if isinstance(summary, dict) and summary.get("created_at_epoch") is not None:
                 try:
