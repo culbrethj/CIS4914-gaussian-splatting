@@ -304,6 +304,16 @@
   line-height: 1.35;
 }
 
+/* Always-visible metric explainer under the chart title. One-liner of
+   what the metric is and how to read it, so graders/new readers don't
+   need domain knowledge to interpret the chart. */
+.chart-card .chart-explainer {
+  font-size: 0.74rem;
+  color: #475569;
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+
 .chart-card .chart-wrap {
   height: 220px;
   width: 100%;

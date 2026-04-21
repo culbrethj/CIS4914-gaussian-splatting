@@ -32,16 +32,28 @@ import "./Reports.css";
 // The histogram charts come from the summary JSON, not the jsonl - they're
 // a single snapshot of the final model's scale + opacity distribution.
 
-// Charts where x = iteration.
+// Charts where x = iteration. We only expose metrics our training pipeline
+// actually produces. SSIM and LPIPS aren't computed by our trainer config
+// (see the written report's Testing Information section for details); the
+// backend endpoints still accept the keys in case a future run emits them.
+// splats_per_frame falls back to the current gaussian count when the
+// rasterizer doesn't expose a per-frame list, so it duplicates Gaussians
+// here - removed to avoid promising a metric we don't really have.
 const METRIC_DEFS = [
   { key: "psnr", label: "PSNR (dB)" },
-  { key: "ssim", label: "SSIM" },
-  { key: "lpips", label: "LPIPS" },
   { key: "loss", label: "Loss" },
   { key: "num_gaussians", label: "Gaussians" },
-  { key: "splats_per_frame", label: "Splats / Frame" },
   { key: "wall_seconds", label: "Wall Time (s)" },
 ];
+
+// Short always-visible explainers under each chart title. Readers who
+// don't live in 3DGS land need a line of context per metric.
+const METRIC_EXPLAINERS = {
+  psnr: "Peak Signal-to-Noise Ratio - how close rendered frames match training frames. Higher is better. 20-25 dB weak, 28-32 good, 35+ excellent.",
+  loss: "L1 + D-SSIM loss (what the optimizer minimizes). Lower is better. Good runs end below 0.05. Spikes are normal (opacity resets, densification).",
+  num_gaussians: "Number of 3D gaussians in the model at this iteration. No strict better/worse - depends on scene complexity. Typical scenes end 100k-3M.",
+  wall_seconds: "Total elapsed seconds from training start. Lower is better at matched quality. Small scenes at 10k iters: ~200-500s on B200.",
+};
 
 // Six distinct colors. Chosen to stay distinguishable under normal and
 // red/green-colorblind viewing. Cap overlay at 6 runs.
@@ -308,9 +320,9 @@ export default function Reports() {
     return out;
   }, [selectedRunTags, seriesByRun]);
 
-  // Which metrics have at least one non-null sample among selected runs? We
-  // hide the rest so the grid doesn't show empty SSIM/LPIPS tiles for
-  // backends that didn't compute them.
+  // Which metrics have at least one non-null sample among selected runs?
+  // Keeps empty charts from showing up when a backend doesn't emit a
+  // particular metric.
   const visibleMetrics = useMemo(() => {
     return METRIC_DEFS.filter(({ key }) => {
       const points = overlayDataByMetric[key] || [];
@@ -396,8 +408,8 @@ export default function Reports() {
       <div className="page-header">
         <h2>Reports / Metrics</h2>
         <p>
-          Pick a dataset and one or more training runs to compare PSNR, SSIM, LPIPS,
-          loss, gaussian count, splats-per-frame, and wall time.
+          Pick a dataset and one or more training runs to compare PSNR,
+          loss, gaussian count, and wall time.
         </p>
       </div>
 
@@ -656,8 +668,6 @@ function SummaryTable({ runs, runNumberByTag }) {
           <th>Backend</th>
           <th>Iters</th>
           <th>PSNR</th>
-          <th>SSIM</th>
-          <th>LPIPS</th>
           <th>Gaussians</th>
           <th>Wall (s)</th>
         </tr>
@@ -673,8 +683,6 @@ function SummaryTable({ runs, runNumberByTag }) {
               <td>{s.backend || "-"}</td>
               <td>{s.iterations ?? "-"}</td>
               <td>{formatNumber(s.final_psnr, 2)}</td>
-              <td>{formatNumber(s.final_ssim, 3)}</td>
-              <td>{formatNumber(s.final_lpips, 3)}</td>
               <td>{formatNumber(s.final_num_gaussians, 0)}</td>
               <td>{formatNumber(s.total_wall_seconds, 0)}</td>
             </tr>
@@ -723,9 +731,12 @@ function OverlayCharts({ metrics, runTags, dataByMetric, colorByRunTag, runNumbe
                 {runTags.length} run(s) overlaid
                 {isLoss && " · spikes at ~3k/6k/9k are opacity resets (expected)"}
               </div>
+              {METRIC_EXPLAINERS[key] && (
+                <div className="chart-explainer">{METRIC_EXPLAINERS[key]}</div>
+              )}
               <div className="chart-wrap">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={dataByMetric[key]} margin={{ top: 4, right: 16, bottom: 4, left: 4 }}>
+                  <LineChart data={dataByMetric[key]} margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5ecf6" />
                     {/* type="number" + explicit domain forces recharts to
                         treat iteration as a numeric axis and start at 0. */}
@@ -738,7 +749,7 @@ function OverlayCharts({ metrics, runTags, dataByMetric, colorByRunTag, runNumbe
                     />
                     <YAxis
                       tick={{ fontSize: 11 }}
-                      width={50}
+                      width={72}
                       scale={yScale}
                       domain={yDomain}
                       tickFormatter={formatAxisTick}
@@ -746,6 +757,9 @@ function OverlayCharts({ metrics, runTags, dataByMetric, colorByRunTag, runNumbe
                     <Tooltip
                       content={<ChartTooltip metricKey={key} labelKey="iteration" />}
                       cursor={{ stroke: "#cbd5e1", strokeWidth: 1 }}
+                      isAnimationActive={false}
+                      wrapperStyle={{ pointerEvents: "none" }}
+                      allowEscapeViewBox={{ x: true, y: true }}
                     />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     {runTags.map((tag) => (
@@ -784,9 +798,14 @@ function PsnrVsWallTimeChart({ runTags, pointsByRun, colorByRunTag, runNumberByT
           <div className="chart-sub">
             Speedup view. Curves hitting the same PSNR faster land farther left.
           </div>
+          <div className="chart-explainer">
+            PSNR over elapsed wall-clock time instead of iteration. A technique
+            is faster-at-equal-quality if its curve reaches a given PSNR to the
+            left of the baseline.
+          </div>
           <div className="chart-wrap tall">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart margin={{ top: 4, right: 16, bottom: 4, left: 4 }}>
+              <LineChart margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5ecf6" />
                 <XAxis
                   type="number"
@@ -801,12 +820,15 @@ function PsnrVsWallTimeChart({ runTags, pointsByRun, colorByRunTag, runNumberByT
                   dataKey="psnr"
                   domain={[0, "auto"]}
                   tick={{ fontSize: 11 }}
-                  width={50}
+                  width={60}
                   tickFormatter={formatAxisTick}
                 />
                 <Tooltip
                   content={<ChartTooltip metricKey="psnr" labelKey="wall_seconds" />}
                   cursor={{ stroke: "#cbd5e1", strokeWidth: 1 }}
+                  isAnimationActive={false}
+                  wrapperStyle={{ pointerEvents: "none" }}
+                  allowEscapeViewBox={{ x: true, y: true }}
                 />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 {runTags.map((tag) => (
@@ -940,12 +962,15 @@ function HistogramCard({ tag, runNumber, color, hist, xLabel }) {
             <YAxis
               domain={[0, "auto"]}
               tick={{ fontSize: 10 }}
-              width={46}
+              width={64}
               tickFormatter={formatAxisTick}
             />
             <Tooltip
               content={<HistogramTooltip />}
               cursor={{ fill: "rgba(15, 107, 216, 0.06)" }}
+              isAnimationActive={false}
+              wrapperStyle={{ pointerEvents: "none" }}
+              allowEscapeViewBox={{ x: true, y: true }}
             />
             <Bar dataKey="count" fill={color} isAnimationActive={false}>
               {data.map((_, i) => (
@@ -980,9 +1005,12 @@ function StackedCharts({ metrics, runTags, seriesByRun, colorByRunTag, runNumber
                   .map(({ key, label }) => (
                     <div key={key} className="chart-card">
                       <h4>{label}</h4>
+                      {METRIC_EXPLAINERS[key] && (
+                        <div className="chart-explainer">{METRIC_EXPLAINERS[key]}</div>
+                      )}
                       <div className="chart-wrap">
                         <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={records} margin={{ top: 4, right: 16, bottom: 4, left: 4 }}>
+                          <LineChart data={records} margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e5ecf6" />
                             <XAxis
                               dataKey="iteration"
@@ -993,13 +1021,16 @@ function StackedCharts({ metrics, runTags, seriesByRun, colorByRunTag, runNumber
                             />
                             <YAxis
                               tick={{ fontSize: 11 }}
-                              width={50}
+                              width={72}
                               domain={[0, "auto"]}
                               tickFormatter={formatAxisTick}
                             />
                             <Tooltip
                               content={<ChartTooltip metricKey={key} labelKey="iteration" />}
                               cursor={{ stroke: "#cbd5e1", strokeWidth: 1 }}
+                              isAnimationActive={false}
+                              wrapperStyle={{ pointerEvents: "none" }}
+                              allowEscapeViewBox={{ x: true, y: true }}
                             />
                             <Line
                               type="monotone"

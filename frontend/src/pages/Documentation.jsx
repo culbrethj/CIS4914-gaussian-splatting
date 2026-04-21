@@ -283,11 +283,10 @@ export default function Documentation() {
             scenes like that.
           </li>
           <li>
-            OpenSplat doesn't emit per-iteration evaluation renders, so
-            SSIM and LPIPS come back null in our metrics pipeline; PSNR
-            is only captured when OpenSplat prints it to stdout. See the
-            Testing Information section of the written report for how we
-            handle the cross-backend comparison.
+            OpenSplat only reports PSNR (captured when the binary prints
+            it to stdout); iteration-level metrics are sparser than the
+            Faster-GS path. See the Testing Information section of the
+            written report for how we handle the cross-backend comparison.
           </li>
           <li>
             The Faster-GS custom rasterizer currently fails to launch on
