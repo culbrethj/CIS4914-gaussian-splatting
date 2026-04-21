@@ -64,7 +64,7 @@ Deeper docs:
 ## Running tests
 
 ```bash
-cd backend && pytest tests/
+pytest backend/tests/
 ```
 
 ## Testing and validation
@@ -90,7 +90,7 @@ Third-party code and papers this project builds on:
 - [Faster Gaussian Splatting](https://github.com/nerficg-project/faster-gaussian-splatting) (Hahlbohm et al., CVPR 2026)
 - [OpenSplat](https://github.com/pierotofy/OpenSplat) — production-ready open-source 3DGS training binary
 - [VGGT: Visual Geometry Grounded Transformer](https://github.com/facebookresearch/vggt) — feed-forward SfM alternative
-- Shorter-Splatting training techniques ([arXiv 2603.09277](http://arxiv.org/pdf/2603.09277)) — scale reset, entropy regularization, progressive resolution
+- Shorter-Splatting training techniques ([arXiv 2603.09277](https://arxiv.org/pdf/2603.09277)) — scale reset, entropy regularization, progressive resolution
 - [COLMAP](https://colmap.github.io/) — Structure-from-Motion pipeline
 - [@react-three/drei](https://github.com/pmndrs/drei) `<Splat>` component — browser splat renderer
 

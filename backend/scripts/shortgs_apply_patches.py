@@ -16,7 +16,7 @@ when no SHORTGS_* vars are set:
   SHORTGS_ENTROPY_WEIGHT           float, 0 disables
   SHORTGS_PROGRESSIVE_RESOLUTION   e.g. "0:0.25,5000:0.5,10000:1.0"; empty disables
 
-Implementation notes (be sure to read this if the professor asks):
+Implementation notes:
 
 - Scale reset: adds log(factor) to `gaussians._scaling.data` every K
   iterations. `_scaling` is stored in log-space by Inria, so addition in

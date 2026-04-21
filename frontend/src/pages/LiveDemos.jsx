@@ -64,7 +64,7 @@ const BACKEND_OPTIONS = [
   {
     value: "opensplat",
     label: "OpenSplat",
-    help: "Available, but depends on teammate-specific HPG environment setup.",
+    help: "Available, but depends on your HPG workspace setup.",
   },
 ];
 const ACTIVE_JOB_STORAGE_KEY = "live_demos_active_job";

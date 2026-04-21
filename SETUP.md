@@ -28,7 +28,7 @@ git checkout jb/fastergs-opensplat-integration
 Backend test suite (21 tests, runs in under a second):
 
 ```bash
-cd backend && pytest tests/
+pytest backend/tests/
 ```
 
 Run this after setup to confirm the install works, and before committing
@@ -311,5 +311,5 @@ The variants in the current `experiment_matrix.yaml`:
 ## Branch + testing notes
 
 - The feature branch is **`jb/fastergs-opensplat-integration`**. Check it out before following any of the setup above — don't set up off `main`.
-- **Don't merge to `main`** until the matrix results have been reviewed (planned for Saturday morning).
+- `main` should only receive the feature branch after the matrix results have been reviewed.
 - Report setup friction promptly so these docs can improve. If something surprises you or the scripts/README.md lies about a command, raise it — fixing docs costs ~5 min each.
