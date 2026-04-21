@@ -30,6 +30,13 @@ backend/datasets/*/output.ply
 backend/datasets/*/output.splat
 backend/datasets/*/sparse/
 backend/datasets/*/database.db
+backend/datasets/*/posthoc_eval/
+
+# --- Local-only OpenSplat post-hoc evaluation tooling ---
+# Writes per-dataset eval outputs under backend/datasets/<name>/posthoc_eval/
+# (ignored above). The script itself is a local development tool, not part
+# of the production pipeline - stays in the working tree, not tracked.
+backend/scripts/opensplat_posthoc_eval.py
 
 # --- OpenSplat runtime deps ---
 backend/*.dll
