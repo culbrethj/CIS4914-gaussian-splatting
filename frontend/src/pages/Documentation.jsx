@@ -12,7 +12,7 @@ export default function Documentation() {
         <h1 style={s.h1}>Documentation</h1>
         <p style={s.lede}>
           What this project is, how the end-to-end pipeline works, and what
-          we built it on. Written for someone who hasn't seen the code yet.
+          we built it on.
         </p>
       </header>
 
