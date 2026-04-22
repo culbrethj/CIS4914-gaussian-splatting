@@ -1,0 +1,426 @@
+.reports-page {
+  --ink: #0f172a;
+  --muted: #475569;
+  --line: #dbe3ef;
+  --surface: #ffffff;
+  --surface-alt: #f4f8ff;
+  --brand: #0f6bd8;
+  --brand-strong: #0048a4;
+  --good: #0f8f5f;
+  --bad: #c53535;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px;
+  color: var(--ink);
+}
+
+.reports-page .page-header {
+  margin-bottom: 6px;
+}
+
+.reports-page .page-header h2 {
+  margin: 0;
+  font-size: 1.7rem;
+  letter-spacing: -0.01em;
+}
+.reports-page .page-header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  max-width: 760px;
+}
+
+/* Controls card: dataset picker, run picker, mode toggle. */
+.reports-controls {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-top: 18px;
+  display: grid;
+  gap: 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.reports-controls label {
+  font-weight: 600;
+  font-size: 0.95rem;
+  display: block;
+  margin-bottom: 6px;
+  color: var(--ink);
+}
+
+.reports-controls select,
+.reports-controls input[type="text"] {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  min-width: 240px;
+  background: white;
+  font-size: 0.92rem;
+}
+
+.reports-mode {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.reports-mode button {
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.reports-mode button:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+.reports-mode button.active {
+  background: var(--brand);
+  color: white;
+  border-color: var(--brand-strong);
+}
+
+/* Run picker grid. Fixed-width cards so long run tags truncate cleanly
+   instead of stretching the grid cells. */
+.run-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 240px));
+  gap: 10px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.run-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--surface-alt);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+.run-card:hover {
+  border-color: #b7cdec;
+}
+
+.run-card.selected {
+  border-color: var(--brand);
+  background: white;
+  box-shadow: 0 0 0 2px rgba(15, 107, 216, 0.14) inset;
+}
+
+.run-card {
+  position: relative;
+}
+
+/* Hover popover rendered through a portal into document.body so it
+   escapes the scrolling run-list's overflow clipping. Position is
+   computed per-card in JS (prefers right, falls back to left / below). */
+.run-card-popover--portal {
+  position: fixed;
+  z-index: 200;
+  pointer-events: none;
+  animation: run-card-pop-in 0.12s ease-out;
+}
+@keyframes run-card-pop-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.run-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.run-card-head input[type="checkbox"] {
+  flex-shrink: 0;
+  accent-color: var(--brand);
+}
+
+.run-card-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+}
+
+.run-card .run-tag {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.run-card .run-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.run-meta-item {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+
+.run-meta-key {
+  color: var(--muted);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.run-meta-val {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.run-card .run-actions {
+  margin-top: 2px;
+}
+
+.run-card .run-actions a {
+  font-size: 0.78rem;
+  color: var(--brand);
+  text-decoration: none;
+  font-weight: 600;
+}
+.run-card .run-actions a:hover {
+  text-decoration: underline;
+}
+
+.reports-empty {
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 28px;
+  text-align: center;
+  color: var(--muted);
+  background: var(--surface-alt);
+  margin-top: 18px;
+}
+
+/* Charts grid + row layout. Sections that live below the controls card. */
+.charts-grid {
+  margin-top: 22px;
+  display: grid;
+  gap: 14px;
+}
+
+.charts-grid.section-spaced {
+  margin-top: 30px;
+}
+
+.section-title {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.section-hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+  max-width: 760px;
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+.section-hint strong {
+  color: var(--ink);
+}
+
+.charts-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.chart-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 14px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.chart-card h4 {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chart-toggle {
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface-alt);
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.chart-toggle:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.chart-card .chart-sub {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin: 0 0 4px;
+  line-height: 1.35;
+}
+
+.chart-card .chart-wrap {
+  height: 220px;
+  width: 100%;
+}
+
+.chart-card .chart-wrap.tall {
+  height: 300px;
+}
+
+/* Stacked-mode run titles (one block per selected run). */
+.stacked-run-title {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Summary table. Numbers are tabular so columns align vertically. */
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+  font-size: 0.88rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.summary-table th,
+.summary-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.summary-table th {
+  background: var(--surface-alt);
+  font-weight: 700;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.summary-table tr:last-child td {
+  border-bottom: none;
+}
+
+.summary-table td {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.summary-table .run-cell {
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+/* Chart hover tooltip. Replaces the default Recharts tooltip with a
+   compact card that carries the x-axis label (iteration or wall time)
+   in bold at the top and one row per series below. Each row shows the
+   series color, short run name, and a unit-aware formatted value so
+   PSNR reads "29.41 dB", gaussian counts read "592,526", wall times
+   read "2m 3s", etc. */
+.chart-tooltip-card {
+  background: #ffffff;
+  border: 1px solid #d6dee8;
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12);
+  font-size: 12px;
+  color: #0f172a;
+  min-width: 140px;
+  max-width: 280px;
+  pointer-events: none;
+}
+.chart-tooltip-head {
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: #0048a4;
+  border-bottom: 1px solid #eef2f8;
+  padding-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.chart-tooltip-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.chart-tooltip-row {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+.chart-tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.chart-tooltip-name {
+  color: #475569;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chart-tooltip-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+  white-space: nowrap;
+}

@@ -1,15 +1,106 @@
-data/
+# --- Python ---
 __pycache__/
-node_modules
+*.pyc
+*.pyo
 venv/
+# .env at repo root holds user-specific HPG paths (FASTERGS_REMOTE_ROOT
+# etc.). Never committed. .env.example IS committed as the template.
 .env
+.pytest_cache/
+
+# --- Node / Vite ---
+node_modules
+frontend/dist/
+# Populated at build time by the copy-showcase-assets Vite plugin when
+# VITE_STATIC_MODE=true. Source of truth for these files remains under
+# backend/datasets/; this mirror is never hand-edited or committed.
+frontend/public/datasets/
+
+# --- macOS / editor junk ---
+**/.DS_Store
+
+# --- Project data dirs (local only, too large for git) ---
+data/
 database.db
 sparse/
 backend/datasets
 backend/data_output
-.DS_Store
 
-# OpenSplat runtime deps
+# Per-dataset intermediate + output artifacts. The `backend/datasets` rule
+# above already covers everything inside, but these are listed explicitly
+# so new files like `output.ply` / `output.splat` at other paths are also
+# caught.
+backend/datasets/*/splat.ply
+backend/datasets/*/splat.splat
+backend/datasets/*/output.ply
+backend/datasets/*/output.splat
+backend/datasets/*/sparse/
+backend/datasets/*/database.db
+backend/datasets/*/posthoc_eval/
+
+# --- Local-only OpenSplat post-hoc evaluation tooling ---
+# Writes per-dataset eval outputs under backend/datasets/<name>/posthoc_eval/
+# (ignored above). The script itself is a local development tool, not part
+# of the production pipeline - stays in the working tree, not tracked.
+backend/scripts/opensplat_posthoc_eval.py
+
+# --- OpenSplat runtime deps ---
 backend/*.dll
 backend/*.exe
 backend/binaries/*.dll
+
+# --- HiPerGator artifacts (trained splats, build logs, fetched runs) ---
+# These are large binaries + SLURM logs. Keep them local only - teammates
+# regenerate by running the pipeline.
+backend/build_logs/
+backend/hipergator/gs_final/
+backend/hipergator/*_latest.splat
+
+# --- Trash quarantine (deep clean review area) ---
+# Local staging for files flagged during cleanup; reviewed by hand before
+# actual deletion. Never committed.
+_trash/
+
+# --- Code audit report (transient) ---
+CODE_AUDIT.md
+ONBOARDING_AUDIT.md
+PREPROCESSING_DEFAULTS.md
+
+# --- Internal experiment + planning notes (not shipped) ---
+# Running logs and plan documents for the Shorter-Splatting validation
+# matrix and VGGT SfM bringup. Kept local for the authors' reference;
+# only README-style docs get tracked.
+backend/experiments/faster-gs/GS_FINAL_PLAN.md
+backend/experiments/faster-gs/VGGT_OVERNIGHT_LOG.md
+backend/experiments/faster-gs/shortgs/ANALYSIS_REPORT.md
+
+# --- Showcase datasets: carve out committable artifacts ---
+# The top-level `backend/datasets` rule (above) ignores everything
+# inside. For cone, snowboard, and gator_statue we un-ignore only
+# the final splat + the metrics tree (jsonl + summary + per-metric
+# PNGs) so graders get a working Gallery and Reports page on clone.
+# Pattern per gitignore(5): first re-include the parent dir so git
+# will descend, then re-ignore all direct children, then negate the
+# specific artifacts we want. Large intermediate artifacts (images/,
+# raw/, video/, *.ply, sparse/, database.db, posthoc_eval/) stay
+# ignored by their own rules above.
+!backend/datasets/
+backend/datasets/*
+
+!backend/datasets/cone/
+backend/datasets/cone/*
+!backend/datasets/cone/splat.splat
+!backend/datasets/cone/metrics/
+!backend/datasets/cone/metrics/**
+
+!backend/datasets/snowboard/
+backend/datasets/snowboard/*
+!backend/datasets/snowboard/splat.splat
+!backend/datasets/snowboard/metrics/
+!backend/datasets/snowboard/metrics/**
+
+!backend/datasets/gator_statue/
+backend/datasets/gator_statue/*
+!backend/datasets/gator_statue/splat.splat
+!backend/datasets/gator_statue/metrics/
+!backend/datasets/gator_statue/metrics/**

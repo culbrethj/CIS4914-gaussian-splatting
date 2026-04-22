@@ -1,0 +1,665 @@
+.live-demos-page {
+  --ink: #0f172a;
+  --muted: #475569;
+  --line: #dbe3ef;
+  --surface: #ffffff;
+  --surface-alt: #f4f8ff;
+  --brand: #0f6bd8;
+  --brand-strong: #0048a4;
+  --good: #0f8f5f;
+  --bad: #c53535;
+  --busy: #a56800;
+  padding: 24px;
+  color: var(--ink);
+}
+
+.page-header h2 {
+  margin: 0;
+  font-size: 1.8rem;
+}
+
+.page-header p {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.demo-grid {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-alt) 100%);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+}
+
+.panel h3 {
+  margin: 0;
+}
+
+.panel-head-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.status-pill {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.status-pill.neutral {
+  background: #edf2f7;
+  color: #374151;
+}
+
+.status-pill.busy {
+  background: #fff8eb;
+  border-color: #f0cb84;
+  color: var(--busy);
+}
+
+.status-pill.good {
+  background: #e9f8f1;
+  border-color: #9ad4ba;
+  color: var(--good);
+}
+
+.status-pill.bad {
+  background: #fff0f0;
+  border-color: #f3b6b6;
+  color: var(--bad);
+}
+
+/* Tabs at the top of the Upload + Run panel that switch between
+   "New video" (upload a fresh video + preprocess) and "Existing
+   dataset" (reuse already-extracted frames, skip preprocessing). */
+.mode-tabs {
+  display: inline-flex;
+  padding: 4px;
+  margin-bottom: 12px;
+  background: #eef2f8;
+  border: 1px solid #d6dee8;
+  border-radius: 10px;
+  gap: 4px;
+}
+/* Doubled `button.mode-tab` selector beats the page-level
+   `button:hover:not(:disabled)` rule (which would otherwise repaint
+   the tab dark-blue on hover, making the grey label invisible). */
+.mode-tab,
+button.mode-tab {
+  background: transparent;
+  color: #475569;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 7px;
+  border: none;
+  box-shadow: none;
+  cursor: pointer;
+}
+.mode-tab:hover:not(:disabled):not(.active),
+button.mode-tab:hover:not(:disabled):not(.active) {
+  background: rgba(15, 107, 216, 0.1);
+  color: var(--brand-strong);
+}
+.mode-tab.active,
+button.mode-tab.active {
+  background: white;
+  color: var(--brand-strong);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+.mode-tab.active:hover:not(:disabled),
+button.mode-tab.active:hover:not(:disabled) {
+  background: white;
+  color: var(--brand-strong);
+}
+.mode-tab:disabled,
+button.mode-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.control-form {
+  display: grid;
+  gap: 12px;
+}
+
+.control-form label,
+.advanced-grid label,
+.dataset-picker {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.control-form input,
+.control-form select,
+.advanced-grid input,
+.dataset-picker select {
+  border: 1px solid #c8d3e2;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 14px;
+}
+
+.field-help {
+  margin-top: -6px;
+  font-size: 12px;
+  color: #516683;
+}
+
+.file-preview {
+  border: 1px dashed #c6d4ea;
+  border-radius: 10px;
+  padding: 9px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Give the Run Advanced button some breathing room below the
+   Shorter-Splatting panel. The Simple-mode button-row elsewhere on
+   the page keeps the default zero margin. */
+.advanced-panel .button-row {
+  margin-top: 18px;
+}
+
+button {
+  border: none;
+  border-radius: 9px;
+  padding: 10px 12px;
+  font-weight: 700;
+  background: var(--brand);
+  color: #fff;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--brand-strong);
+}
+
+button.secondary {
+  background: #dbe7f8;
+  color: #153a6b;
+}
+
+button.accent {
+  background: #0d8b5f;
+}
+
+button.accent:hover:not(:disabled) {
+  background: #0a6d4a;
+}
+
+/* .primary is the same look as the default (brand blue). Declaring it
+   explicitly so button usage reads intentionally, e.g. Run Advanced. */
+button.primary {
+  background: var(--brand);
+  color: #fff;
+}
+button.primary:hover:not(:disabled) {
+  background: var(--brand-strong);
+}
+
+button.tiny {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.advanced-panel {
+  margin-top: 10px;
+  border: 1px solid #c8d7ee;
+  border-radius: 10px;
+  padding: 16px 18px;
+  background: #f5f9ff;
+}
+
+/* Three-column grid on desktop so preprocessing fields line up
+   in two clean rows of three: [SfM method, FPS, Downscale] /
+   [Max width, Blur, Duplicate]. Wraps to 2 cols then 1 col as the
+   viewport narrows rather than cramming 6 fields on one line. */
+.advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+@media (max-width: 820px) {
+  .advanced-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 520px) {
+  .advanced-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.messages p {
+  margin: 8px 0 0;
+  color: #1e293b;
+  font-size: 13px;
+}
+
+.logs-panel {
+  min-height: 360px;
+}
+
+.log-box {
+  background: #041321;
+  color: #d5ecff;
+  border-radius: 10px;
+  border: 1px solid #113253;
+  height: 310px;
+  overflow: auto;
+  padding: 10px;
+  font-family: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.log-placeholder {
+  color: #8eb7da;
+}
+
+.log-line {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+  white-space: pre-wrap;
+}
+
+.log-line.warn {
+  color: #f8d47a;
+}
+
+.log-line.error {
+  color: #ff9f9f;
+}
+
+.log-line.success {
+  color: #8df0bc;
+}
+
+.log-time {
+  opacity: 0.75;
+}
+
+.empty,
+.dataset-path {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.viewer-panel {
+  min-height: 420px;
+}
+
+/* Full-width viewer section. Renders below the upload/logs grid and
+   stretches the viewer across the whole page so the 3D canvas is the
+   main focus. Dataset picker sits inline in the header. */
+.viewer-section {
+  margin-top: 18px;
+}
+
+.viewer-panel-wide {
+  min-height: 620px;
+}
+
+.viewer-panel-wide .gauss-viewer,
+.viewer-panel-wide .viewer-canvas-wrap {
+  height: 560px;
+}
+
+.viewer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.viewer-head h3 {
+  margin: 0;
+}
+
+.viewer-head-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dataset-picker.inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: 600;
+}
+
+.dataset-picker.inline .dataset-picker-label {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.dataset-picker.inline select {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: white;
+  min-width: 200px;
+}
+
+.empty-inline {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.processing-preview {
+  margin-bottom: 12px;
+  border: 1px solid #cfe0f6;
+  border-radius: 10px;
+  background: #f7fbff;
+  padding: 10px;
+}
+
+.logs-progress {
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
+.processing-stage {
+  font-size: 13px;
+  font-weight: 700;
+  color: #194277;
+  margin-bottom: 8px;
+}
+
+.progress-track {
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  background: #e6ebf8;
+  overflow: hidden;
+  border: 1px solid #d1dfef;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0;
+  transition: width 260ms ease;
+  background: #5a6ecf;
+}
+
+.progress-fill.busy {
+  background: linear-gradient(90deg, #5a6ecf 0%, #6d87f0 100%);
+}
+
+.progress-fill.good {
+  background: linear-gradient(90deg, #2f9d57 0%, #59c779 100%);
+}
+
+.progress-fill.bad {
+  background: linear-gradient(90deg, #c23d3d 0%, #de6767 100%);
+}
+
+.progress-fill.neutral {
+  background: #9aa8d8;
+}
+
+.progress-meta {
+  margin-top: 8px;
+  color: #345b85;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+@media (max-width: 900px) {
+  .live-demos-page {
+    padding: 16px;
+  }
+}
+
+/* Advanced panel section headers. Group preprocessing vs training so
+   users see at a glance which knobs invalidate the cached SfM. The
+   first title skips the extra top margin (would push against the
+   panel border); every subsequent section gets breathing room. */
+.advanced-section-title {
+  margin: 4px 0 10px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--brand-strong);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.advanced-section-title--spaced {
+  margin-top: 22px;
+}
+.advanced-section-sub {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  color: #7585a0;
+  font-size: 0.72rem;
+  margin-left: 0;
+}
+
+/* Label row inside the advanced grid. Wraps the label text + info icon
+   so they stay inline and the icon doesn't sit on a new line. */
+.advanced-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+
+/* "SfM cached" note shown at the top of Advanced Settings when a dataset
+   already has a preprocess fingerprint on disk. */
+.sfm-cache-note {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 10px;
+}
+.sfm-cache-badge {
+  flex-shrink: 0;
+  background: #0f8f5f;
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+}
+.sfm-cache-text {
+  font-size: 0.85rem;
+  color: #064e3b;
+  line-height: 1.4;
+}
+
+/* Shorter-Splatting experiment panel inside Advanced Settings.
+   Each technique is a horizontal row: toggle on the left, params on the
+   right. Params are disabled until the toggle flips on. */
+.experiment-panel {
+  margin-top: 22px;
+  padding: 14px 16px 16px;
+  background: #f7fbff;
+  border: 1px solid #cfe0f6;
+  border-radius: 10px;
+}
+
+.experiment-head h4 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+  color: var(--brand-strong);
+}
+
+.experiment-head .experiment-sub {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.experiment-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.experiment-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.experiment-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--ink);
+  min-width: 190px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.experiment-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
+.experiment-params {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.experiment-params label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.78rem;
+  color: var(--muted);
+  gap: 4px;
+  min-width: 120px;
+}
+
+.experiment-params label.wide {
+  min-width: 260px;
+  flex: 1;
+}
+
+.experiment-params input {
+  padding: 6px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: white;
+}
+
+.experiment-params input:disabled {
+  background: #eef2f8;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+/* Advanced-grid selects get the same look as the numeric inputs so the
+   SfM method dropdown doesn't stick out against the rest of the row. */
+.advanced-grid select {
+  padding: 7px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: white;
+  font: inherit;
+  font-size: 0.9rem;
+}
+.advanced-grid select:disabled {
+  background: #eef2f8;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+/* Persistent "UI preview" banner shown only in the GitHub Pages build.
+   Visually distinct from the in-page status pills - amber band across the
+   top of the interactive region so it can't be missed. */
+.live-demos-static-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 10px 14px;
+  border: 1px solid #e3b341;
+  border-left: 4px solid #bf8700;
+  border-radius: 8px;
+  background: #fff8e1;
+  color: #4a3d00;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+.live-demos-static-banner strong {
+  color: #3d2f00;
+}
+
+/* Fieldset is a layout-neutral wrapper; strip its default UA styles so it
+   doesn't insert an extra border/padding around the demo grid. When static
+   mode kicks in we dim it slightly and set a not-allowed cursor at the
+   container level - individual disabled inputs already get their own
+   not-allowed cursor from browser defaults and the rules above. */
+.live-demos-fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0;
+}
+.live-demos-fieldset.is-static-disabled {
+  cursor: not-allowed;
+  opacity: 0.95;
+}
+.live-demos-fieldset.is-static-disabled :disabled {
+  cursor: not-allowed;
+}

@@ -1,3 +1,6 @@
+"""PLY to SPLAT converter CLI. Reads a Gaussian Splatting PLY file and
+writes the compact .splat binary format consumed by the web viewer."""
+
 import math
 import os
 import struct
@@ -97,9 +100,22 @@ def ply_to_splat(ply_path):
         splat_data = bytearray(32 * vertex_count)
 
         def clamp_byte(x):
+            # Guard against NaN / inf. Some training regimes (e.g. the
+            # Shorter-Splatting entropy + scale-reset combo) can push a
+            # handful of gaussians into non-finite states; we'd rather
+            # render them as black-transparent than crash the whole
+            # conversion.
+            if not math.isfinite(x):
+                return 0
             return max(0, min(255, int(round(x))))
 
         def write_float(offset, value):
+            # NaN / inf floats write cleanly as IEEE bit patterns but the
+            # viewer then draws garbage for those gaussians. Replace with
+            # 0.0 so they're positionally at origin but effectively invisible
+            # (paired with alpha=0 from clamp_byte).
+            if not math.isfinite(value):
+                value = 0.0
             struct.pack_into("<f", splat_data, offset, value)
 
         total_vertex_bytes = row_size * vertex_count

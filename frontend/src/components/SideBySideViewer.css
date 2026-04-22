@@ -1,0 +1,47 @@
+.sbs-viewer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .sbs-viewer {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sbs-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sbs-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 6px 10px;
+  background: #f4f8ff;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+}
+
+.sbs-canvas-wrap {
+  height: 480px;
+  width: 100%;
+  background: #f3f7ff;
+  border-radius: 12px;
+  border: 1px solid #dbe3ef;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+@media (max-width: 600px) {
+  .sbs-canvas-wrap {
+    height: 340px;
+  }
+}
